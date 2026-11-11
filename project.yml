@@ -34,6 +34,8 @@ targets:
       path: SkiSteps/Info.plist
       properties:
         CFBundleDisplayName: Ski Steps
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
         NSHealthShareUsageDescription: Ski Steps reads your steps, walking distance, flights climbed, active energy, exercise time and workouts (including swims) from Apple Health to show your progress, goals and history.
         NSHealthUpdateUsageDescription: Ski Steps saves the runs you record or confirm to Apple Health, with distance, calories and route.
         NSLocationWhenInUseUsageDescription: Ski Steps uses your location while you record a run to map your route and measure distance and pace.
@@ -69,6 +71,8 @@ targets:
       path: SkiStepsWidget/Info.plist
       properties:
         CFBundleDisplayName: Ski Steps
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     settings:
@@ -90,6 +94,8 @@ targets:
       path: SkiStepsWatch/Info.plist
       properties:
         CFBundleDisplayName: Ski Steps
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
         WKApplication: true
         WKCompanionAppBundleIdentifier: com.skistudio.steps
         NSHealthShareUsageDescription: Ski Steps reads your steps, distance, calories, exercise time and heart rate to show your progress and live workout stats.
