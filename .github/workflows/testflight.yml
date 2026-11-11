@@ -46,6 +46,11 @@ jobs:
       - name: Write API key
         if: steps.check.outputs.skip != 'true'
         run: |
+          # Trim stray spaces/newlines pasted into the ID secrets.
+          ASC_KEY_ID=$(printf '%s' "$ASC_KEY_ID" | tr -d '[:space:]')
+          ASC_ISSUER_ID=$(printf '%s' "$ASC_ISSUER_ID" | tr -d '[:space:]')
+          TEAM_ID=$(printf '%s' "$TEAM_ID" | tr -d '[:space:]')
+          { echo "ASC_KEY_ID=$ASC_KEY_ID"; echo "ASC_ISSUER_ID=$ASC_ISSUER_ID"; echo "TEAM_ID=$TEAM_ID"; } >> "$GITHUB_ENV"
           mkdir -p "$RUNNER_TEMP/keys"
           KEY="$RUNNER_TEMP/keys/AuthKey_$ASC_KEY_ID.p8"
           # Rebuild a clean PEM no matter how the key was pasted (lost line
