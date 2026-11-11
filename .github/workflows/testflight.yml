@@ -51,6 +51,12 @@ jobs:
           ASC_ISSUER_ID=$(printf '%s' "$ASC_ISSUER_ID" | tr -d '[:space:]')
           TEAM_ID=$(printf '%s' "$TEAM_ID" | tr -d '[:space:]')
           { echo "ASC_KEY_ID=$ASC_KEY_ID"; echo "ASC_ISSUER_ID=$ASC_ISSUER_ID"; echo "TEAM_ID=$TEAM_ID"; } >> "$GITHUB_ENV"
+          # Report the shape of each ID (never the values) to spot mix-ups.
+          ok=1
+          [[ "$ASC_KEY_ID" =~ ^[A-Z0-9]{10}$ ]] || { echo "::error::ASC_KEY_ID should be 10 letters/numbers (it's ${#ASC_KEY_ID} characters). Use the Key ID shown next to the key, which also appears in the file name AuthKey_<KeyID>.p8."; ok=0; }
+          [[ "$ASC_ISSUER_ID" =~ ^[0-9a-fA-F-]{36}$ ]] || { echo "::error::ASC_ISSUER_ID should look like 69a6de7e-xxxx-xxxx-xxxx-xxxxxxxxxxxx (36 characters; it's ${#ASC_ISSUER_ID}). It's shown above the Team Keys list."; ok=0; }
+          [[ "$TEAM_ID" =~ ^[A-Z0-9]{10}$ ]] || { echo "::error::APPLE_TEAM_ID should be 10 letters/numbers (it's ${#TEAM_ID} characters)."; ok=0; }
+          [ "$ok" = 1 ] && echo "::notice::ID formats look right (Key ID 10, Issuer ID 36, Team ID 10)."
           mkdir -p "$RUNNER_TEMP/keys"
           KEY="$RUNNER_TEMP/keys/AuthKey_$ASC_KEY_ID.p8"
           # Rebuild a clean PEM no matter how the key was pasted (lost line
