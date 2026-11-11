@@ -15,6 +15,8 @@ struct SettingsView: View {
     @AppStorage("autoSaveDetected") private var autoSaveDetected = true
     @AppStorage("detectAlerts") private var detectAlerts = true
     @AppStorage("circuitVoice") private var circuitVoice = true
+    @AppStorage("recordRoutes") private var recordRoutes = true
+    @ObservedObject private var routes = RouteRecorder.shared
 
     private let presets: [Double] = [5_000, 7_500, 10_000, 12_500, 15_000]
 
@@ -73,13 +75,23 @@ struct SettingsView: View {
                     Toggle("Detect runs", isOn: $autoDetect)
                     Toggle("Detect walks", isOn: $autoDetectWalks)
                     Toggle("Save detected workouts automatically", isOn: $autoSaveDetected)
+                    Toggle("Record route maps in the background", isOn: $recordRoutes)
+                    if recordRoutes && !routes.hasAlways {
+                        Button("Allow location \"Always\" for route maps") {
+                            if routes.authorization == .notDetermined {
+                                routes.requestPermission()
+                            } else if let url = URL(string: UIApplication.openSettingsURLString) {
+                                openURL(url)
+                            }
+                        }
+                    }
                     Toggle("Notify when one is recorded", isOn: $detectAlerts)
                     Toggle("Spoken splits during runs", isOn: $runVoice)
                     Toggle("Voice coach in circuits", isOn: $circuitVoice)
                 } header: {
                     Text("Workouts")
                 } footer: {
-                    Text("Ski Steps checks your iPhone's motion data for runs (5+ min) and walks (10+ min) you didn't record. With automatic saving on they go straight to Apple Health; otherwise you'll get a card to save them. Detection runs when the app opens and in the background as Health gets new steps.")
+                    Text("Ski Steps checks your iPhone's motion data for runs (5+ min) and walks (10+ min) you didn't record. With automatic saving on they go straight to Apple Health; otherwise you'll get a card to save them. Route maps turn GPS on only while you're moving on foot or by bike. Detection runs when the app opens and in the background as Health gets new steps.")
                 }
 
                 Section("Notifications") {
@@ -143,6 +155,14 @@ struct SettingsView: View {
             .onChange(of: autoDetect) { _, _ in Task { await health.refresh() } }
             .onChange(of: autoDetectWalks) { _, _ in Task { await health.refresh() } }
             .onChange(of: autoSaveDetected) { _, _ in Task { await health.refresh() } }
+            .onChange(of: recordRoutes) { _, on in
+                if on {
+                    routes.requestPermission()
+                    routes.start()
+                } else {
+                    routes.stop()
+                }
+            }
             .onChange(of: metric) { _, _ in health.settingsChanged() }
         }
     }

@@ -5,6 +5,8 @@ import CoreLocation
 struct WorkoutsView: View {
     @EnvironmentObject private var health: HealthStore
     @EnvironmentObject private var detector: RunDetector
+    @ObservedObject private var routes = RouteRecorder.shared
+    @Environment(\.openURL) private var openURL
     @AppStorage("useMetric") private var metric = false
     @State private var filter: WorkoutKind = .all
     @State private var showTracker = false
@@ -42,6 +44,7 @@ struct WorkoutsView: View {
                         exercisesCard
                     }
                     .buttonStyle(.plain)
+                    if routes.enabled && !routes.hasAlways { routePermissionCard }
                     ForEach(detector.found) { run in detectedCard(run) }
                     weekCard
                     if kindsPresent.count > 2 { filterChips }
@@ -113,6 +116,45 @@ struct WorkoutsView: View {
         .buttonStyle(.plain)
     }
 
+    private var routePermissionCard: some View {
+        let denied = routes.authorization == .denied || routes.authorization == .restricted
+        return HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "map.fill")
+                .font(.title2)
+                .foregroundStyle(Theme.accent2)
+                .frame(width: 44, height: 44)
+                .background(Theme.accent2.opacity(0.15), in: Circle())
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Add maps to detected walks & runs").font(.headline)
+                Text(denied
+                     ? "Location is off for Ski Steps. In Settings › Ski Steps › Location, choose Always."
+                     : (routes.authorization == .authorizedWhenInUse
+                        ? "Choose \"Always\" so routes are recorded even when the app is closed."
+                        : "Ski Steps turns on GPS only while you're moving on foot, so each detected walk or run gets its route."))
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                Button {
+                    if denied || routes.authorization == .authorizedWhenInUse {
+                        if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                    } else {
+                        routes.requestPermission()
+                    }
+                } label: {
+                    Text(denied || routes.authorization == .authorizedWhenInUse ? "Open Settings" : "Turn On Route Maps")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Theme.accent2, in: Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .card()
+    }
+
     private var exercisesCard: some View {
         HStack(spacing: 14) {
             ZStack {
@@ -166,6 +208,7 @@ struct WorkoutsView: View {
                     Task {
                         do {
                             try await health.saveWorkout(run.activity, start: run.start, end: run.end, meters: run.meters,
+                                                         locations: health.routePoints(for: run),
                                                          metadata: ["SkiStepsAutoDetected": true])
                             detector.dismiss(run)
                         } catch {

@@ -477,6 +477,7 @@ final class HealthStore: ObservableObject {
         for run in detector.toAutoSave {
             do {
                 try await saveWorkout(run.activity, start: run.start, end: run.end, meters: run.meters,
+                                      locations: routePoints(for: run),
                                       metadata: ["SkiStepsAutoDetected": true], refreshAfter: false)
                 detector.dismiss(run)
                 detector.notifySaved(run)
@@ -486,6 +487,11 @@ final class HealthStore: ObservableObject {
             }
         }
         return saved
+    }
+
+    /// GPS points the background recorder captured during a detected run/walk.
+    func routePoints(for run: DetectedRun) -> [CLLocation] {
+        RouteRecorder.shared.points(from: run.start.addingTimeInterval(-30), to: run.end.addingTimeInterval(30))
     }
 
     /// Deletes a workout Ski Steps saved (e.g. a detected walk that wasn't one).

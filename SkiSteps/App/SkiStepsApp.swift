@@ -10,6 +10,7 @@ struct SkiStepsApp: App {
     init() {
         UNUserNotificationCenter.current().delegate = notificationDelegate
         WatchLink.shared.activate()
+        RouteRecorder.shared.start()
     }
 
     var body: some Scene {
@@ -20,7 +21,10 @@ struct SkiStepsApp: App {
                 .preferredColorScheme(.dark)
                 .tint(Theme.accent)
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .active { Task { await health.refresh() } }
+                    if phase == .active {
+                        RouteRecorder.shared.start()
+                        Task { await health.refresh() }
+                    }
                 }
         }
     }
