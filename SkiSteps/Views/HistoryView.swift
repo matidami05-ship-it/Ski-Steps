@@ -26,13 +26,26 @@ struct HistoryView: View {
     }
 
     @EnvironmentObject private var health: HealthStore
-    @AppStorage("dailyGoal") private var goal: Double = 10_000
+    @AppStorage("dailyGoal") private var stepGoal: Double = 10_000
+    @AppStorage("distanceGoal") private var distanceGoal: Double = Metric.distance.defaultGoal
+    @AppStorage("calorieGoal") private var calorieGoal: Double = Metric.calories.defaultGoal
+    @AppStorage("activeGoal") private var activeGoal: Double = Metric.active.defaultGoal
+    @AppStorage("useMetric") private var useMetric = false
+    @State private var metric: Metric = .steps
     @State private var span: Span = .week
     @State private var selection: Date?
 
     private let cal = Calendar.current
 
-    private var rawDays: [StepPoint] { Array(health.daily.suffix(span.days)) }
+    /// The goal in display units (miles/km for distance).
+    private var goal: Double { metric.display(metric.goal(), useMetric: useMetric) }
+
+    /// Daily values in display units.
+    private var rawDays: [StepPoint] {
+        (health.history[metric] ?? []).suffix(span.days).map {
+            StepPoint(date: $0.date, value: metric.display($0.value, useMetric: useMetric))
+        }
+    }
 
     private var bars: [StepPoint] {
         guard span.unit != .day else { return rawDays }
@@ -61,11 +74,13 @@ struct HistoryView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
+                    metricChips
                     Picker("Range", selection: $span) {
                         ForEach(Span.allCases) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.segmented)
                     .onChange(of: span) { _, _ in selection = nil }
+                    .onChange(of: metric) { _, _ in selection = nil }
 
                     chartCard
                     summaryGrid
@@ -86,17 +101,15 @@ struct HistoryView: View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 if let bar = selectedBar {
-                    Text(span.unit == .day ? "STEPS" : "DAILY AVERAGE")
+                    Text(span.unit == .day ? metric.title.uppercased() : "DAILY AVERAGE")
                         .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                    Text(Fmt.steps(bar.value))
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                    valueText(bar.value)
                     Text(label(for: bar.date))
                         .font(.subheadline).foregroundStyle(.secondary)
                 } else {
                     Text("DAILY AVERAGE")
                         .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                    Text(Fmt.steps(average))
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
+                    valueText(average)
                     Text(rangeLabel)
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
@@ -106,8 +119,8 @@ struct HistoryView: View {
             Chart {
                 ForEach(bars) { bar in
                     BarMark(x: .value("Date", bar.date, unit: span.unit),
-                            y: .value("Steps", bar.value))
-                        .foregroundStyle(bar.value >= goal ? Theme.accent : Theme.accent2.opacity(0.6))
+                            y: .value(metric.title, bar.value))
+                        .foregroundStyle(bar.value >= goal ? metric.color : metric.color.opacity(0.45))
                         .cornerRadius(span == .week ? 6 : 2)
                         .opacity(selectedBar == nil || selectedBar == bar ? 1 : 0.35)
                 }
@@ -141,7 +154,7 @@ struct HistoryView: View {
                 AxisMarks(position: .trailing) { value in
                     AxisGridLine().foregroundStyle(Theme.stroke)
                     AxisValueLabel {
-                        if let v = value.as(Double.self) { Text(Fmt.compact(v)) }
+                        if let v = value.as(Double.self) { Text(metric.short(v)) }
                     }
                 }
             }
@@ -150,6 +163,37 @@ struct HistoryView: View {
         }
         .padding(16)
         .card()
+    }
+
+    private func valueText(_ v: Double) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text(metric.text(v))
+                .font(.system(size: 34, weight: .bold, design: .rounded))
+            Text(metric.unit(useMetric: useMetric))
+                .font(.headline)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var metricChips: some View {
+        HStack(spacing: 8) {
+            ForEach(Metric.allCases) { m in
+                Button {
+                    withAnimation(.snappy) { metric = m }
+                } label: {
+                    VStack(spacing: 4) {
+                        Image(systemName: m.icon).font(.subheadline.weight(.semibold))
+                        Text(m == .active ? "Active" : m.title).font(.caption2.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                    .foregroundStyle(metric == m ? .black : .primary)
+                    .background(metric == m ? m.color : Color.white.opacity(0.08),
+                                in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 
     private func label(for date: Date) -> String {
@@ -173,13 +217,13 @@ struct HistoryView: View {
         let best = rawDays.max { $0.value < $1.value }
         let met = rawDays.filter { $0.value >= goal }.count
         return LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-            BadgeTile(icon: "sum", color: Theme.accent2, title: "Total", value: Fmt.steps(total))
+            BadgeTile(icon: "sum", color: Theme.accent2, title: "Total", value: metric.text(total))
             BadgeTile(icon: "target", color: Theme.accent, title: "Goals met", value: "\(met) of \(rawDays.count)")
             BadgeTile(icon: "trophy.fill", color: Theme.gold, title: "Best day",
-                      value: best.map { Fmt.steps($0.value) } ?? "—",
+                      value: best.map { metric.text($0.value) } ?? "—",
                       caption: best.map { $0.date.formatted(.dateTime.month(.abbreviated).day()) })
             BadgeTile(icon: "flame.fill", color: .orange, title: "Streak",
-                      value: "\(health.streak(goal: goal)) days")
+                      value: "\(health.streak(metric, goal: metric.goal())) days")
         }
     }
 
@@ -189,14 +233,15 @@ struct HistoryView: View {
         VStack(spacing: 0) {
             ForEach(Array(rawDays.reversed())) { day in
                 HStack(spacing: 12) {
-                    ProgressRing(progress: goal > 0 ? day.value / goal : 0, lineWidth: 4)
+                    ProgressRing(progress: goal > 0 ? day.value / goal : 0, lineWidth: 4,
+                                 colors: [metric.color.opacity(0.6), metric.color])
                         .frame(width: 30, height: 30)
                     Text(cal.isDateInToday(day.date) ? "Today"
                          : day.date.formatted(.dateTime.weekday(.wide).month(.abbreviated).day()))
                     Spacer()
-                    Text(Fmt.steps(day.value))
+                    Text("\(metric.text(day.value)) \(metric == .steps ? "" : metric.unit(useMetric: useMetric))")
                         .font(.body.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(day.value >= goal ? Theme.accent : .primary)
+                        .foregroundStyle(day.value >= goal ? metric.color : .primary)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)

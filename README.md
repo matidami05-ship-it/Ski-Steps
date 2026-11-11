@@ -3,9 +3,11 @@
 A step counter for iPhone that reads from Apple Health.
 
 - Big progress ring for today's steps (goes past 100% with a gold second lap)
-- Distance, floors climbed and active calories
+- Daily goals for steps, distance, calories and active time, plus floors climbed
 - Today-by-hour chart, this week's goal rings, streak and best day
 - History: week, month, 6 months and year charts with your goal line, tap a bar for details
+- Workouts tab: record runs with GPS route, pace and spoken splits; all Apple Health workouts (runs, swims, walks, rides, strength) with maps, splits, laps and strokes
+- Auto-detects runs from iPhone motion data and offers to save them; Apple Watch auto-detected workouts appear automatically
 - Home Screen widgets (small, medium) and Lock Screen widgets
 - "Goal reached" notification, even when the app is closed
 - Adjustable daily goal, miles or kilometers

@@ -5,6 +5,9 @@ struct TodayView: View {
     @EnvironmentObject private var health: HealthStore
     @AppStorage("dailyGoal") private var goal: Double = 10_000
     @AppStorage("useMetric") private var metric = false
+    @AppStorage("distanceGoal") private var distanceGoal: Double = Metric.distance.defaultGoal
+    @AppStorage("calorieGoal") private var calorieGoal: Double = Metric.calories.defaultGoal
+    @AppStorage("activeGoal") private var activeGoal: Double = Metric.active.defaultGoal
     @State private var celebrate = 0
 
     private var progress: Double { goal > 0 ? health.steps / goal : 0 }
@@ -78,15 +81,27 @@ struct TodayView: View {
     // MARK: Stats
 
     private var statsRow: some View {
-        HStack(spacing: 10) {
-            StatTile(icon: "location.fill", color: Theme.accent2,
-                     value: Fmt.distance(health.distance, metric: metric),
-                     label: Fmt.distanceUnit(metric))
-            StatTile(icon: "stairs", color: .orange,
-                     value: Fmt.steps(health.flights), label: "floors")
-            StatTile(icon: "flame.fill", color: .pink,
-                     value: Fmt.steps(health.energy), label: "cal")
+        VStack(spacing: 10) {
+            ForEach([Metric.distance, .calories, .active]) { m in
+                GoalRow(metric: m,
+                        value: health.today(m),
+                        goal: m.goal(),
+                        useMetric: metric)
+            }
+            HStack(spacing: 10) {
+                StatTile(icon: "stairs", color: .orange,
+                         value: Fmt.steps(health.flights), label: "floors climbed")
+                StatTile(icon: "figure.run", color: Theme.run,
+                         value: Fmt.distance(todayRunMeters, metric: metric),
+                         label: "\(Fmt.distanceUnit(metric)) run today")
+            }
         }
+    }
+
+    private var todayRunMeters: Double {
+        health.workouts
+            .filter { $0.kind == .running && Calendar.current.isDateInToday($0.start) }
+            .map(\.distance).reduce(0, +)
     }
 
     private var noDataCard: some View {
@@ -204,6 +219,42 @@ struct TodayView: View {
 }
 
 // MARK: - Reusable pieces
+
+struct GoalRow: View {
+    var metric: Metric
+    var value: Double
+    var goal: Double
+    var useMetric: Bool
+
+    private var progress: Double { goal > 0 ? value / goal : 0 }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                ProgressRing(progress: progress, lineWidth: 6, colors: [metric.color.opacity(0.6), metric.color])
+                Image(systemName: progress >= 1 ? "checkmark" : metric.icon)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(progress >= 1 ? Theme.gold : metric.color)
+            }
+            .frame(width: 46, height: 46)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(metric.title).font(.subheadline).foregroundStyle(.secondary)
+                    Spacer()
+                    Text(metric.text(metric.display(value, useMetric: useMetric)))
+                        .font(.headline.monospacedDigit())
+                        .foregroundStyle(metric.color)
+                    Text("/ \(metric.text(metric.display(goal, useMetric: useMetric))) \(metric.unit(useMetric: useMetric))")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                GoalBar(progress: progress, color: metric.color)
+            }
+        }
+        .padding(14)
+        .card()
+    }
+}
 
 struct StatTile: View {
     var icon: String

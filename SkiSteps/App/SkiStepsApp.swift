@@ -15,6 +15,7 @@ struct SkiStepsApp: App {
         WindowGroup {
             RootView()
                 .environmentObject(health)
+                .environmentObject(health.detector)
                 .preferredColorScheme(.dark)
                 .tint(Theme.accent)
                 .onChange(of: scenePhase) { _, phase in
@@ -58,6 +59,8 @@ struct MainTabs: View {
         TabView {
             TodayView()
                 .tabItem { Label("Today", systemImage: "figure.walk") }
+            WorkoutsView()
+                .tabItem { Label("Workouts", systemImage: "figure.run") }
             HistoryView()
                 .tabItem { Label("History", systemImage: "chart.bar.fill") }
             SettingsView()
@@ -83,7 +86,7 @@ struct OnboardingView: View {
             VStack(spacing: 10) {
                 Text("Ski Steps")
                     .font(.system(size: 38, weight: .bold, design: .rounded))
-                Text("Your steps, distance and floors from Apple Health — with goals, streaks and history.")
+                Text("Steps, distance, calories, active time and workouts from Apple Health — with goals, streaks, run tracking and history.")
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -106,7 +109,7 @@ struct OnboardingView: View {
                     .padding(.vertical, 16)
                     .background(Theme.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
-                Text("Ski Steps only reads your data. Nothing leaves your phone.")
+                Text("Ski Steps only saves runs you record or confirm. Nothing leaves your phone.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

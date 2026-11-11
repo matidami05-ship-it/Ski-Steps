@@ -32,8 +32,11 @@ targets:
       path: SkiSteps/Info.plist
       properties:
         CFBundleDisplayName: Ski Steps
-        NSHealthShareUsageDescription: Ski Steps reads your steps, walking distance, flights climbed and active energy from Apple Health to show your daily progress and history.
-        NSHealthUpdateUsageDescription: Ski Steps does not write any data to Apple Health.
+        NSHealthShareUsageDescription: Ski Steps reads your steps, walking distance, flights climbed, active energy, exercise time and workouts (including swims) from Apple Health to show your progress, goals and history.
+        NSHealthUpdateUsageDescription: Ski Steps saves the runs you record or confirm to Apple Health, with distance, calories and route.
+        NSLocationWhenInUseUsageDescription: Ski Steps uses your location while you record a run to map your route and measure distance and pace.
+        NSMotionUsageDescription: Ski Steps uses motion data to detect runs you didn't record, so you can save them.
+        UIBackgroundModes: [location, audio]
         UILaunchScreen:
           UIColorName: AccentColor
         UIRequiredDeviceCapabilities: [healthkit]

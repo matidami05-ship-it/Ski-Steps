@@ -8,11 +8,12 @@ struct StepEntry: TimelineEntry {
 
 struct StepProvider: TimelineProvider {
     private var current: StepSnapshot {
-        StepSnapshot.load() ?? StepSnapshot(day: .now, steps: 0, distanceMeters: 0, goal: 10_000, useMetric: false)
+        StepSnapshot.load() ?? .empty
     }
 
     func placeholder(in context: Context) -> StepEntry {
-        StepEntry(date: .now, snapshot: StepSnapshot(day: .now, steps: 7_420, distanceMeters: 5_600, goal: 10_000, useMetric: false))
+        StepEntry(date: .now, snapshot: StepSnapshot(day: .now, steps: 7_420, distanceMeters: 5_600, energy: 340,
+                                                     activeMinutes: 22, goals: [:], useMetric: false))
     }
 
     func getSnapshot(in context: Context, completion: @escaping (StepEntry) -> Void) {
@@ -40,8 +41,9 @@ struct StepWidgetView: View {
     // The midnight entry is evaluated on its own date, so check against that.
     private var isSameDay: Bool { Calendar.current.isDate(snap.day, inSameDayAs: entry.date) }
     private var steps: Double { isSameDay ? snap.steps : 0 }
-    private var distance: Double { isSameDay ? snap.distanceMeters : 0 }
-    private var progress: Double { snap.goal > 0 ? steps / snap.goal : 0 }
+    private var stepGoal: Double { snap.goal(.steps) }
+    private var progress: Double { stepGoal > 0 ? steps / stepGoal : 0 }
+    private func value(_ m: Metric) -> Double { isSameDay ? snap.value(m) : 0 }
 
     var body: some View {
         switch family {
@@ -59,7 +61,7 @@ struct StepWidgetView: View {
                     .font(.headline)
                 Gauge(value: min(progress, 1)) { EmptyView() }
                     .gaugeStyle(.accessoryLinear)
-                Text("\(Int((progress * 100).rounded()))% of \(Fmt.compact(snap.goal))")
+                Text("\(Int((progress * 100).rounded()))% of \(Fmt.compact(stepGoal))")
                     .font(.caption)
             }
 
@@ -67,25 +69,34 @@ struct StepWidgetView: View {
             Label("\(Fmt.steps(steps)) steps", systemImage: "figure.walk")
 
         case .systemMedium:
-            HStack(spacing: 18) {
-                ring.frame(width: 120, height: 120)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Steps today")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Text(Fmt.steps(steps))
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
-                        .minimumScaleFactor(0.6)
-                        .lineLimit(1)
-                    Label("\(Fmt.distance(distance, metric: snap.useMetric)) \(Fmt.distanceUnit(snap.useMetric))",
-                          systemImage: "location.fill")
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.accent2)
-                    Text(progress >= 1 ? "Goal reached 🎉" : "\(Fmt.steps(max(snap.goal - steps, 0))) to go")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(progress >= 1 ? Theme.gold : .primary)
+            HStack(spacing: 16) {
+                ZStack {
+                    ring
+                    VStack(spacing: 0) {
+                        Text(Fmt.compact(steps))
+                            .font(.system(size: 22, weight: .bold, design: .rounded))
+                        Text("steps").font(.caption2).foregroundStyle(.secondary)
+                    }
                 }
-                Spacer(minLength: 0)
+                .frame(width: 118, height: 118)
+                VStack(alignment: .leading, spacing: 9) {
+                    ForEach([Metric.distance, .calories, .active]) { m in
+                        let goal = snap.goal(m)
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 4) {
+                                Image(systemName: m.icon).font(.caption2).foregroundStyle(m.color)
+                                Text(m.text(m.display(value(m), useMetric: snap.useMetric)))
+                                    .font(.caption.weight(.bold).monospacedDigit())
+                                Text("/ \(m.text(m.display(goal, useMetric: snap.useMetric))) \(m.unit(useMetric: snap.useMetric))")
+                                    .font(.caption2.monospacedDigit())
+                                    .foregroundStyle(.secondary)
+                            }
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                            GoalBar(progress: goal > 0 ? value(m) / goal : 0, color: m.color, height: 5)
+                        }
+                    }
+                }
             }
 
         default:
@@ -119,7 +130,7 @@ struct SkiStepsWidget: Widget {
                 }
         }
         .configurationDisplayName("Steps")
-        .description("Today's steps and progress toward your goal.")
+        .description("Today's steps, distance, calories and active time.")
         .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular, .accessoryRectangular, .accessoryInline])
     }
 }
