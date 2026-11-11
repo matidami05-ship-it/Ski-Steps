@@ -43,6 +43,7 @@ targets:
           UIColorName: AccentColor
         UIRequiredDeviceCapabilities: [healthkit]
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UIRequiresFullScreen: true
         UIUserInterfaceStyle: Dark
         LSApplicationQueriesSchemes: [x-apple-health]
         ITSAppUsesNonExemptEncryption: false
@@ -93,7 +94,7 @@ targets:
         NSHealthShareUsageDescription: Ski Steps reads your steps, distance, calories, exercise time and heart rate to show your progress and live workout stats.
         NSHealthUpdateUsageDescription: Ski Steps saves the workouts you record on Apple Watch to Apple Health.
         NSLocationWhenInUseUsageDescription: Ski Steps uses your location during outdoor workouts to map your route and measure distance.
-        UIBackgroundModes: [workout-processing]
+        WKBackgroundModes: [workout-processing]
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.skistudio.steps.watchkitapp
