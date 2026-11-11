@@ -9,6 +9,7 @@ struct SkiStepsApp: App {
 
     init() {
         UNUserNotificationCenter.current().delegate = notificationDelegate
+        WatchLink.shared.activate()
     }
 
     var body: some Scene {

@@ -82,6 +82,14 @@ struct WorkoutSummary: Identifiable {
     }
 
     var energy: Double { total(.activeEnergyBurned, .kilocalorie()) }
+
+    private static let bpm = HKUnit.count().unitDivided(by: .minute())
+    var averageHeartRate: Double {
+        workout.statistics(for: HKQuantityType(.heartRate))?.averageQuantity()?.doubleValue(for: Self.bpm) ?? 0
+    }
+    var maxHeartRate: Double {
+        workout.statistics(for: HKQuantityType(.heartRate))?.maximumQuantity()?.doubleValue(for: Self.bpm) ?? 0
+    }
     var strokes: Double { total(.swimmingStrokeCount, .count()) }
     var laps: Int { workout.workoutEvents?.filter { $0.type == .lap }.count ?? 0 }
     var isIndoor: Bool { (workout.metadata?[HKMetadataKeyIndoorWorkout] as? Bool) ?? false }

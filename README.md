@@ -8,6 +8,8 @@ A step counter for iPhone that reads from Apple Health.
 - History: week, month, 6 months and year charts with your goal line, tap a bar for details
 - Workouts tab: record runs with GPS route, pace and spoken splits; all Apple Health workouts (runs, swims, walks, rides, strength) with maps, splits, laps and strokes
 - Auto-detects runs from iPhone motion data and offers to save them; Apple Watch auto-detected workouts appear automatically
+- Apple Watch app: daily rings and goals on your wrist, and workouts (runs, walks, pool and open-water swims, rides, strength, HIIT) with heart rate, GPS route and swim laps
+- Steps by device (iPhone vs Apple Watch) and heart rate on workouts
 - Home Screen widgets (small, medium) and Lock Screen widgets
 - "Goal reached" notification, even when the app is closed
 - Adjustable daily goal, miles or kilometers

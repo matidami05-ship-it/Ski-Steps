@@ -3,6 +3,7 @@ options:
   bundleIdPrefix: com.ski
   deploymentTarget:
     iOS: "17.0"
+    watchOS: "10.0"
   createIntermediateGroups: true
 settings:
   base:
@@ -20,6 +21,7 @@ targets:
       - path: Shared
     dependencies:
       - target: SkiStepsWidget
+      - target: SkiStepsWatch
     entitlements:
       path: SkiSteps/SkiSteps.entitlements
       properties:
@@ -69,4 +71,31 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ski.steps.widget
+        SKIP_INSTALL: YES
+  SkiStepsWatch:
+    type: application
+    platform: watchOS
+    sources:
+      - path: SkiStepsWatch
+      - path: Shared
+    entitlements:
+      path: SkiStepsWatch/SkiStepsWatch.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.access: []
+    info:
+      path: SkiStepsWatch/Info.plist
+      properties:
+        CFBundleDisplayName: Ski Steps
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: com.ski.steps
+        NSHealthShareUsageDescription: Ski Steps reads your steps, distance, calories, exercise time and heart rate to show your progress and live workout stats.
+        NSHealthUpdateUsageDescription: Ski Steps saves the workouts you record on Apple Watch to Apple Health.
+        NSLocationWhenInUseUsageDescription: Ski Steps uses your location during outdoor workouts to map your route and measure distance.
+        UIBackgroundModes: [workout-processing]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.ski.steps.watchkitapp
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "4"
         SKIP_INSTALL: YES

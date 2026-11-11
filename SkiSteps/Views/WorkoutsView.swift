@@ -379,6 +379,12 @@ struct WorkoutDetailView: View {
                 list.append((summary.kind == .cycling ? "Avg speed" : "Avg pace", p, "speedometer", Theme.run))
             }
             if summary.energy > 0 { list.append(("Active calories", "\(Fmt.steps(summary.energy)) cal", "flame.fill", Theme.calorie)) }
+            if summary.averageHeartRate > 0 {
+                list.append(("Avg heart rate", "\(Int(summary.averageHeartRate)) bpm", "heart.fill", .red))
+            }
+            if summary.maxHeartRate > 0 {
+                list.append(("Max heart rate", "\(Int(summary.maxHeartRate)) bpm", "bolt.heart.fill", .red))
+            }
             if summary.laps > 0 { list.append(("Laps", "\(summary.laps)", "arrow.left.arrow.right", Theme.accent2)) }
             if summary.strokes > 0 { list.append(("Strokes", Fmt.steps(summary.strokes), "water.waves", Theme.accent2)) }
             list.append(("Recorded by", summary.source, "applewatch", .gray))

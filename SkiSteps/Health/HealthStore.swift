@@ -4,6 +4,13 @@ import CoreLocation
 import UserNotifications
 import WidgetKit
 
+struct DeviceSteps: Identifiable {
+    var name: String
+    var value: Double
+    var isWatch: Bool
+    var id: String { name }
+}
+
 struct StepPoint: Identifiable, Equatable {
     var date: Date
     var value: Double
@@ -24,6 +31,7 @@ final class HealthStore: ObservableObject {
     @Published var hourly: [StepPoint] = []  // 24 hours of today
     @Published var history: [Metric: [StepPoint]] = [:]  // last 400 days per metric, oldest first
     @Published var workouts: [WorkoutSummary] = []
+    @Published var stepsByDevice: [DeviceSteps] = []
     @Published var lastUpdated: Date?
 
     let store = HKHealthStore()
@@ -50,6 +58,7 @@ final class HealthStore: ObservableObject {
             HKQuantityType(.distanceSwimming),
             HKQuantityType(.swimmingStrokeCount),
             HKQuantityType(.distanceCycling),
+            HKQuantityType(.heartRate),
             HKObjectType.workoutType(),
             HKSeriesType.workoutRoute(),
         ]
@@ -129,6 +138,7 @@ final class HealthStore: ObservableObject {
         async let he = series(.activeEnergyBurned, unit: .kilocalorie(), from: historyStart, to: tomorrow, every: day)
         async let ha = series(.appleExerciseTime, unit: .minute(), from: historyStart, to: tomorrow, every: day)
         async let r = loadWorkouts()
+        async let bySource = stepsBySource(from: today, to: now)
 
         steps = await s
         distance = await d
@@ -152,6 +162,7 @@ final class HealthStore: ObservableObject {
         }
         history = all
         workouts = await r
+        stepsByDevice = await bySource
         await detector.scan(existing: workouts)
         lastUpdated = now
 
@@ -167,6 +178,25 @@ final class HealthStore: ObservableObject {
                                           quantitySamplePredicate: predicate,
                                           options: .cumulativeSum) { _, stats, _ in
                 cont.resume(returning: stats?.sumQuantity()?.doubleValue(for: unit) ?? 0)
+            }
+            store.execute(query)
+        }
+    }
+
+    private func stepsBySource(from start: Date, to end: Date) async -> [DeviceSteps] {
+        let store = self.store
+        return await withCheckedContinuation { cont in
+            let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: .strictStartDate)
+            let query = HKStatisticsQuery(quantityType: HKQuantityType(.stepCount),
+                                          quantitySamplePredicate: predicate,
+                                          options: [.cumulativeSum, .separateBySource]) { _, stats, _ in
+                let list = (stats?.sources ?? []).compactMap { source -> DeviceSteps? in
+                    let v = stats?.sumQuantity(for: source)?.doubleValue(for: .count()) ?? 0
+                    guard v > 0 else { return nil }
+                    return DeviceSteps(name: source.name, value: v,
+                                       isWatch: source.name.localizedCaseInsensitiveContains("watch"))
+                }
+                cont.resume(returning: list.sorted { $0.value > $1.value })
             }
             store.execute(query)
         }
@@ -323,6 +353,7 @@ final class HealthStore: ObservableObject {
         StepSnapshot(day: Date(), steps: steps, distanceMeters: distance, energy: energy,
                      activeMinutes: activeMinutes, goals: goals, useMetric: metric).save()
         WidgetCenter.shared.reloadAllTimelines()
+        WatchLink.shared.sendSettings()
     }
 
     /// Call when a goal or units change so the widget updates right away.

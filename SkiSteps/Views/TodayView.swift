@@ -19,6 +19,7 @@ struct TodayView: View {
                     ringCard
                     statsRow
                     if !health.hasAnyData { noDataCard }
+                    if !health.stepsByDevice.isEmpty { devicesCard }
                     hourlyCard
                     weekCard
                     streakCard
@@ -117,6 +118,37 @@ struct TodayView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .card()
+    }
+
+    // MARK: Devices
+
+    private var devicesCard: some View {
+        let total = max(health.stepsByDevice.map(\.value).reduce(0, +), 1)
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Steps by device").font(.headline)
+                Spacer()
+                Text("Health merges these").font(.caption).foregroundStyle(.secondary)
+            }
+            ForEach(health.stepsByDevice) { d in
+                HStack(spacing: 12) {
+                    Image(systemName: d.isWatch ? "applewatch" : "iphone")
+                        .font(.title3)
+                        .foregroundStyle(d.isWatch ? Theme.accent : Theme.accent2)
+                        .frame(width: 30)
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack {
+                            Text(d.name).font(.subheadline).lineLimit(1)
+                            Spacer()
+                            Text(Fmt.steps(d.value)).font(.subheadline.weight(.semibold).monospacedDigit())
+                        }
+                        GoalBar(progress: d.value / total, color: d.isWatch ? Theme.accent : Theme.accent2, height: 5)
+                    }
+                }
+            }
+        }
         .padding(16)
         .card()
     }
