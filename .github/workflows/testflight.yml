@@ -48,7 +48,17 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/keys"
           KEY="$RUNNER_TEMP/keys/AuthKey_$ASC_KEY_ID.p8"
-          printf '%s\n' "$ASC_KEY_CONTENT" > "$KEY"
+          # Rebuild a clean PEM no matter how the key was pasted (lost line
+          # breaks, Windows line endings, extra spaces, missing header).
+          BODY=$(printf '%s' "$ASC_KEY_CONTENT" | tr -d '\r' \
+            | sed -e 's/-----BEGIN [A-Z ]*-----//g' -e 's/-----END [A-Z ]*-----//g' \
+            | tr -cd 'A-Za-z0-9+/=')
+          { echo "-----BEGIN PRIVATE KEY-----"; echo "$BODY" | fold -w 64; echo "-----END PRIVATE KEY-----"; } > "$KEY"
+          echo "Key body length: ${#BODY} characters (a valid key is about 200)."
+          if ! openssl pkey -in "$KEY" -noout 2>/dev/null; then
+            echo "::error::The ASC_KEY_CONTENT secret isn't a valid private key (body is ${#BODY} characters; expected about 200). Re-copy the whole .p8 file text into the secret."
+            exit 1
+          fi
           echo "KEY_PATH=$KEY" >> "$GITHUB_ENV"
 
       - name: Archive (signed with HealthKit)
