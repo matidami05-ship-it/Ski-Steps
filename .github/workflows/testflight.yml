@@ -58,31 +58,40 @@ jobs:
           [[ "$TEAM_ID" =~ ^[A-Z0-9]{10}$ ]] || { echo "::error::APPLE_TEAM_ID should be 10 letters/numbers (it's ${#TEAM_ID} characters)."; ok=0; }
           [ "$ok" = 1 ] && echo "::notice::ID formats look right (Key ID 10, Issuer ID 36, Team ID 10)."
           mkdir -p "$RUNNER_TEMP/keys"
-          KEY="$RUNNER_TEMP/keys/AuthKey_$ASC_KEY_ID.p8"
-          # Rebuild a clean PEM no matter how the key was pasted (lost line
-          # breaks, Windows line endings, extra spaces, missing header).
-          BODY=$(printf '%s' "$ASC_KEY_CONTENT" | tr -d '\r' \
-            | sed -e 's/-----BEGIN [A-Z ]*-----//g' -e 's/-----END [A-Z ]*-----//g' \
-            | tr -cd 'A-Za-z0-9+/=')
-          { echo "-----BEGIN PRIVATE KEY-----"; echo "$BODY" | fold -w 64; echo "-----END PRIVATE KEY-----"; } > "$KEY"
-          echo "Key body length: ${#BODY} characters (a valid key is about 200)."
-          if ! openssl pkey -in "$KEY" -noout 2>/dev/null; then
-            echo "::error::The ASC_KEY_CONTENT secret isn't a valid private key (body is ${#BODY} characters; expected about 200). Re-copy the whole .p8 file text into the secret."
+          # Split the secret into key blocks (it may hold more than one key if
+          # several .p8 files were copied at once) and rebuild each as clean PEM.
+          printf '%s' "$ASC_KEY_CONTENT" | tr -d '\r' > "$RUNNER_TEMP/raw.txt"
+          python3 - "$RUNNER_TEMP/raw.txt" "$RUNNER_TEMP/keys" <<'PY'
+          import re, sys, textwrap
+          raw = open(sys.argv[1]).read()
+          parts = re.split(r"-----BEGIN [A-Z ]*-----", raw)
+          bodies = []
+          for p in parts:
+              body = re.sub(r"-----END [A-Z ]*-----.*", "", p, flags=re.S)
+              body = re.sub(r"[^A-Za-z0-9+/=]", "", body)
+              if len(body) > 100:
+                  bodies.append(body)
+          for i, body in enumerate(bodies):
+              with open(f"{sys.argv[2]}/candidate{i}.pem", "w") as f:
+                  f.write("-----BEGIN PRIVATE KEY-----\n" + "\n".join(textwrap.wrap(body, 64)) + "\n-----END PRIVATE KEY-----\n")
+          print(f"Found {len(bodies)} key(s) in ASC_KEY_CONTENT")
+          PY
+          n=0
+          for c in "$RUNNER_TEMP"/keys/candidate*.pem; do
+            [ -f "$c" ] || continue
+            if openssl pkey -in "$c" -out "$c.tmp" 2>/dev/null && openssl pkcs8 -topk8 -nocrypt -in "$c.tmp" -out "$c" 2>/dev/null; then
+              n=$((n+1))
+            else
+              rm -f "$c"
+            fi
+            rm -f "$c.tmp"
+          done
+          if [ "$n" = 0 ]; then
+            echo "::error::ASC_KEY_CONTENT doesn't contain a valid private key. Re-copy the .p8 file text into the secret."
             exit 1
           fi
-          # Re-encode to canonical PKCS#8 (drops any stray characters that
-          # were pasted along with the key; Xcode's parser is strict).
-          openssl pkey -in "$KEY" -out "$KEY.clean"
-          openssl pkcs8 -topk8 -nocrypt -in "$KEY.clean" -out "$KEY"
-          rm -f "$KEY.clean"
-          KTYPE=$(openssl pkey -in "$KEY" -noout -text 2>/dev/null | head -1)
-          echo "Key type: $KTYPE"
-          case "$KTYPE" in
-            *256*) ;;
-            *) echo "::error::This isn't an App Store Connect API key (expected a 256-bit EC key, got: $KTYPE). Make sure ASC_KEY_CONTENT holds the AuthKey_….p8 text." ; exit 1 ;;
-          esac
-          printf 'Key ID length: %s (should be 10)\n' "$(printf '%s' "$ASC_KEY_ID" | tr -d '[:space:]' | wc -c)"
-          echo "KEY_PATH=$KEY" >> "$GITHUB_ENV"
+          [ "$n" -gt 1 ] && echo "::notice::ASC_KEY_CONTENT contains $n keys — will use the one that matches the Key ID."
+          echo "KEYS_DIR=$RUNNER_TEMP/keys" >> "$GITHUB_ENV"
 
       - name: Test API key with Apple
         if: steps.check.outputs.skip != 'true'
@@ -105,13 +114,22 @@ jobs:
           puts "Apple API status: #{res.code}"
           case res.code
           when "200" then puts "::notice::API key works with App Store Connect."
-          when "401" then puts "::error::Apple rejected the key (401). The .p8 text, Key ID and Issuer ID don't belong together. Most likely the key is from the 'In-App Purchase' or 'Individual Keys' tab, or the Key ID is from a different key. Create a new key under Users and Access › Integrations › App Store Connect API › Team Keys (Admin) and update all three secrets."
+          when "401" then puts "Apple rejected this key (401)."
           when "403" then puts "::error::The key works but doesn't have enough access (403). Create a Team Key with Admin access."
           else puts "::error::Unexpected answer from Apple (#{res.code}): #{res.body[0, 300]}"
           end
           exit(res.code == "200" ? 0 : 1)
           RUBY
-          ruby "$RUNNER_TEMP/jwt.rb"
+          for c in "$KEYS_DIR"/candidate*.pem; do
+            echo "Trying $(basename "$c")"
+            if KEY_PATH="$c" ruby "$RUNNER_TEMP/jwt.rb"; then
+              cp "$c" "$KEYS_DIR/AuthKey_$ASC_KEY_ID.p8"
+              echo "KEY_PATH=$KEYS_DIR/AuthKey_$ASC_KEY_ID.p8" >> "$GITHUB_ENV"
+              exit 0
+            fi
+          done
+          echo "::error::None of the keys in ASC_KEY_CONTENT work with this Key ID ($(printf '%s' "$ASC_KEY_ID" | cut -c1-2)…) and Issuer ID. Check that ASC_KEY_ID is the new key's ID and ASC_ISSUER_ID is the Issuer ID above the Team Keys list."
+          exit 1
 
       - name: Archive (signed with HealthKit)
         if: steps.check.outputs.skip != 'true'
