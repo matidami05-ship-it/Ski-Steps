@@ -62,6 +62,8 @@ struct MainTabs: View {
                 .tabItem { Label("Today", systemImage: "figure.walk") }
             WorkoutsView()
                 .tabItem { Label("Workouts", systemImage: "figure.run") }
+            InsightsView()
+                .tabItem { Label("Insights", systemImage: "chart.line.uptrend.xyaxis") }
             HistoryView()
                 .tabItem { Label("History", systemImage: "chart.bar.fill") }
             SettingsView()

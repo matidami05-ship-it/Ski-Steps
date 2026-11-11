@@ -3,6 +3,53 @@ import HealthKit
 import CoreLocation
 import UserNotifications
 import WidgetKit
+import UIKit
+import MapKit
+
+struct DayCurve {
+    var today: [StepPoint]
+    var average: [StepPoint]
+    var todayTotal: Double
+    var averageNow: Double
+    static let empty = DayCurve(today: [], average: [], todayTotal: 0, averageNow: 0)
+}
+
+/// Draws a route on a dark map snapshot.
+enum RouteSnapshot {
+    static func make(_ coords: [CLLocationCoordinate2D], size: CGSize) async -> UIImage? {
+        let poly = MKPolyline(coordinates: coords, count: coords.count)
+        var rect = poly.boundingMapRect
+        let pad = max(rect.size.width, rect.size.height) * 0.25 + 300
+        rect = rect.insetBy(dx: -pad, dy: -pad)
+        let options = MKMapSnapshotter.Options()
+        options.mapRect = rect
+        options.size = size
+        options.traitCollection = UITraitCollection(userInterfaceStyle: .dark)
+        options.pointOfInterestFilter = .excludingAll
+        let snapshotter = MKMapSnapshotter(options: options)
+        let snapshot: MKMapSnapshotter.Snapshot? = await withCheckedContinuation { cont in
+            snapshotter.start { snap, _ in cont.resume(returning: snap) }
+        }
+        guard let snapshot else { return nil }
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { ctx in
+            snapshot.image.draw(at: .zero)
+            let path = UIBezierPath()
+            for (i, c) in coords.enumerated() {
+                let p = snapshot.point(for: c)
+                if i == 0 { path.move(to: p) } else { path.addLine(to: p) }
+            }
+            path.lineWidth = 7
+            path.lineCapStyle = .round
+            path.lineJoinStyle = .round
+            UIColor.black.withAlphaComponent(0.6).setStroke()
+            path.stroke()
+            path.lineWidth = 4.5
+            UIColor(red: 1.0, green: 0.48, blue: 0.36, alpha: 1).setStroke()
+            path.stroke()
+        }
+    }
+}
 
 struct DeviceSteps: Identifiable {
     var name: String
@@ -32,6 +79,16 @@ final class HealthStore: ObservableObject {
     @Published var history: [Metric: [StepPoint]] = [:]  // last 400 days per metric, oldest first
     @Published var workouts: [WorkoutSummary] = []
     @Published var stepsByDevice: [DeviceSteps] = []
+    @Published var restingEnergy: Double = 0
+    @Published var energyCurve: DayCurve = .empty
+    @Published var exerciseCurve: DayCurve = .empty
+    @Published var restingHR: Double = 60
+    @Published var maxHR: Double = 190
+    @Published var training: TrainingLoad = .empty
+
+    private var routeImages: [UUID: UIImage] = [:]
+    private var placeNames: [UUID: String] = [:]
+    private var noRoute: Set<UUID> = []
     @Published var lastUpdated: Date?
 
     let store = HKHealthStore()
@@ -59,6 +116,9 @@ final class HealthStore: ObservableObject {
             HKQuantityType(.swimmingStrokeCount),
             HKQuantityType(.distanceCycling),
             HKQuantityType(.heartRate),
+            HKQuantityType(.restingHeartRate),
+            HKQuantityType(.basalEnergyBurned),
+            HKCharacteristicType(.dateOfBirth),
             HKObjectType.workoutType(),
             HKSeriesType.workoutRoute(),
         ]
@@ -139,6 +199,10 @@ final class HealthStore: ObservableObject {
         async let ha = series(.appleExerciseTime, unit: .minute(), from: historyStart, to: tomorrow, every: day)
         async let r = loadWorkouts()
         async let bySource = stepsBySource(from: today, to: now)
+        async let basal = sum(.basalEnergyBurned, unit: .kilocalorie(), from: today, to: now)
+        async let eCurve = curve(.activeEnergyBurned, unit: .kilocalorie())
+        async let xCurve = curve(.appleExerciseTime, unit: .minute())
+        async let rhr = latest(.restingHeartRate, unit: HKUnit.count().unitDivided(by: .minute()))
 
         steps = await s
         distance = await d
@@ -163,6 +227,15 @@ final class HealthStore: ObservableObject {
         history = all
         workouts = await r
         stepsByDevice = await bySource
+        restingEnergy = await basal
+        energyCurve = await eCurve
+        exerciseCurve = await xCurve
+        if let r = await rhr, r > 30 { restingHR = r }
+        if let dob = try? store.dateOfBirthComponents().date,
+           let age = cal.dateComponents([.year], from: dob, to: now).year, age > 5 {
+            maxHR = Double(220 - age)
+        }
+        training = TrainingLoad.compute(workouts: workouts, restingHR: restingHR, maxHR: maxHR)
         await detector.scan(existing: workouts)
         lastUpdated = now
 
@@ -182,6 +255,75 @@ final class HealthStore: ObservableObject {
             store.execute(query)
         }
     }
+
+    /// Today's running total by hour, next to the average running total of the last 28 days.
+    private func curve(_ id: HKQuantityTypeIdentifier, unit: HKUnit) async -> DayCurve {
+        let now = Date()
+        let today = cal.startOfDay(for: now)
+        let start = cal.date(byAdding: .day, value: -28, to: today)!
+        let tomorrow = cal.date(byAdding: .day, value: 1, to: today)!
+        let points = await series(id, unit: unit, from: start, to: tomorrow, every: DateComponents(hour: 1))
+
+        var byDay: [Date: [Double]] = [:]
+        for p in points {
+            let day = cal.startOfDay(for: p.date)
+            let hour = cal.component(.hour, from: p.date)
+            var arr = byDay[day] ?? Array(repeating: 0, count: 24)
+            arr[hour] += p.value
+            byDay[day] = arr
+        }
+        func cumulative(_ a: [Double]) -> [Double] {
+            var total = 0.0
+            return a.map { total += $0; return total }
+        }
+        let past = byDay.filter { $0.key < today }.map { cumulative($0.value) }
+        var avg = Array(repeating: 0.0, count: 24)
+        if !past.isEmpty {
+            for h in 0..<24 { avg[h] = past.map { $0[h] }.reduce(0, +) / Double(past.count) }
+        }
+        let todayCum = cumulative(byDay[today] ?? Array(repeating: 0, count: 24))
+        let nowHour = cal.component(.hour, from: now)
+        func date(_ h: Int) -> Date { cal.date(byAdding: .hour, value: h + 1, to: today)! }
+        var todayPts = [StepPoint(date: today, value: 0)]
+        todayPts += (0...nowHour).map { StepPoint(date: $0 == nowHour ? now : date($0), value: todayCum[$0]) }
+        var avgPts = [StepPoint(date: today, value: 0)]
+        avgPts += (0..<24).map { StepPoint(date: date($0), value: avg[$0]) }
+        // Average up to this moment, interpolated within the current hour.
+        let frac = now.timeIntervalSince(cal.date(byAdding: .hour, value: nowHour, to: today)!) / 3600
+        let before = nowHour > 0 ? avg[nowHour - 1] : 0
+        let avgNow = before + (avg[nowHour] - before) * frac
+        return DayCurve(today: todayPts, average: avgPts, todayTotal: todayCum[nowHour], averageNow: avgNow)
+    }
+
+    private func latest(_ id: HKQuantityTypeIdentifier, unit: HKUnit) async -> Double? {
+        let store = self.store
+        return await withCheckedContinuation { cont in
+            let sort = NSSortDescriptor(key: HKSampleSortIdentifierStartDate, ascending: false)
+            let q = HKSampleQuery(sampleType: HKQuantityType(id), predicate: nil, limit: 1, sortDescriptors: [sort]) { _, s, _ in
+                cont.resume(returning: (s?.first as? HKQuantitySample)?.quantity.doubleValue(for: unit))
+            }
+            store.execute(q)
+        }
+    }
+
+    // MARK: - Route previews
+
+    /// A small map image of the workout's route, cached.
+    func routeImage(for w: WorkoutSummary, size: CGSize) async -> UIImage? {
+        if let img = routeImages[w.id] { return img }
+        if noRoute.contains(w.id) { return nil }
+        let points = await route(for: w.workout)
+        guard points.count > 1 else { noRoute.insert(w.id); return nil }
+        let img = await RouteSnapshot.make(points.map(\.coordinate), size: size)
+        routeImages[w.id] = img
+        if placeNames[w.id] == nil, let first = points.first {
+            let place = try? await CLGeocoder().reverseGeocodeLocation(first).first
+            if let name = place?.locality ?? place?.name { placeNames[w.id] = name }
+        }
+        return img
+    }
+
+    func placeName(for w: WorkoutSummary) -> String? { placeNames[w.id] }
 
     private func stepsBySource(from start: Date, to end: Date) async -> [DeviceSteps] {
         let store = self.store

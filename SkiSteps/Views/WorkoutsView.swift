@@ -20,6 +20,12 @@ struct WorkoutsView: View {
         filter == .all ? health.workouts : health.workouts.filter { $0.kind == filter }
     }
 
+    private var months: [(Date, [WorkoutSummary])] {
+        let cal = Calendar.current
+        let groups = Dictionary(grouping: shown) { cal.dateInterval(of: .month, for: $0.start)?.start ?? $0.start }
+        return groups.map { ($0.key, $0.value.sorted { $0.start > $1.start }) }.sorted { $0.0 > $1.0 }
+    }
+
     private var thisWeek: [WorkoutSummary] {
         let start = Calendar.current.dateInterval(of: .weekOfYear, for: .now)?.start ?? .now
         return health.workouts.filter { $0.start >= start }
@@ -36,14 +42,19 @@ struct WorkoutsView: View {
                     if shown.isEmpty {
                         emptyCard
                     } else {
-                        LazyVStack(spacing: 10) {
-                            ForEach(shown) { w in
-                                NavigationLink {
-                                    WorkoutDetailView(summary: w)
-                                } label: {
-                                    WorkoutRow(summary: w, metric: metric)
+                        LazyVStack(alignment: .leading, spacing: 10) {
+                            ForEach(months, id: \.0) { group in
+                                Text(group.0.formatted(.dateTime.month(.wide).year()))
+                                    .font(.title2.weight(.bold))
+                                    .padding(.top, 8)
+                                ForEach(group.1) { w in
+                                    NavigationLink {
+                                        WorkoutDetailView(summary: w)
+                                    } label: {
+                                        WorkoutRow(summary: w, metric: metric)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
                     }
@@ -242,44 +253,69 @@ struct WorkoutsView: View {
 struct WorkoutRow: View {
     let summary: WorkoutSummary
     let metric: Bool
+    @EnvironmentObject private var health: HealthStore
+    @State private var routeImage: UIImage?
+    @State private var place: String?
 
     var body: some View {
-        HStack(spacing: 14) {
-            Image(systemName: summary.kind.icon)
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(summary.kind.color)
-                .frame(width: 48, height: 48)
-                .background(summary.kind.color.opacity(0.15), in: Circle())
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(summary.name).font(.headline)
-                    if summary.autoDetected {
-                        Image(systemName: "sparkles").font(.caption).foregroundStyle(Theme.gold)
-                    }
-                }
-                Text(summary.distanceText(metric: metric) ?? Fmt.clock(summary.duration))
-                    .font(.title3.weight(.bold).monospacedDigit())
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: summary.kind.icon)
+                    .font(.title3.weight(.semibold))
                     .foregroundStyle(summary.kind.color)
-                Text(summary.start.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day().hour().minute()))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44)
+                    .background(summary.kind.color.opacity(0.15), in: Circle())
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack {
+                        Text(summary.start.formatted(.dateTime.weekday(.wide).month(.wide).day()))
+                            .font(.headline)
+                        Spacer()
+                        Text(summary.start.formatted(date: .omitted, time: .shortened))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack(spacing: 6) {
+                        Text(place ?? summary.name).font(.headline)
+                        if summary.autoDetected {
+                            Image(systemName: "sparkles").font(.caption).foregroundStyle(Theme.gold)
+                        }
+                    }
+                    if place != nil {
+                        Text(summary.name).font(.subheadline).foregroundStyle(.secondary)
+                    }
+                    HStack(spacing: 14) {
+                        if let d = summary.distanceText(metric: metric) {
+                            Text(d).font(.title3.weight(.bold).monospacedDigit()).foregroundStyle(summary.kind.color)
+                        }
+                        Text(Fmt.clock(summary.duration)).font(.subheadline.monospacedDigit())
+                        if summary.energy > 0 {
+                            Text("\(Fmt.steps(summary.energy)) kcal").font(.subheadline.monospacedDigit())
+                        }
+                        if summary.averageHeartRate > 0 {
+                            Label("\(Int(summary.averageHeartRate))", systemImage: "heart.fill")
+                                .font(.subheadline.monospacedDigit())
+                                .foregroundStyle(.red)
+                        }
+                    }
+                    Text(summary.source).font(.caption).foregroundStyle(.secondary)
+                }
             }
-            Spacer()
-            VStack(alignment: .trailing, spacing: 3) {
-                if summary.distance > 0 {
-                    Text(Fmt.clock(summary.duration)).font(.subheadline.monospacedDigit())
-                }
-                if let pace = summary.paceText(metric: metric) {
-                    Text(pace).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                }
-                if summary.energy > 0 {
-                    Text("\(Fmt.steps(summary.energy)) cal").font(.caption).foregroundStyle(.secondary)
-                }
+            .padding(14)
+            if let routeImage {
+                Image(uiImage: routeImage)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(height: 170)
+                    .frame(maxWidth: .infinity)
+                    .clipped()
             }
-            Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
         }
-        .padding(14)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .card()
+        .task(id: summary.id) {
+            routeImage = await health.routeImage(for: summary, size: CGSize(width: 400, height: 190))
+            place = health.placeName(for: summary)
+        }
     }
 }
 

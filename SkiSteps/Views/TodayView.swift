@@ -19,6 +19,11 @@ struct TodayView: View {
                     ringCard
                     statsRow
                     if !health.hasAnyData { noDataCard }
+                    CurveCard(title: "Active Energy", icon: "flame.fill", color: Theme.calorie,
+                              curve: health.energyCurve, unit: "kcal")
+                    restingCard
+                    CurveCard(title: "Exercise Minutes", icon: "timer", color: Theme.active,
+                              curve: health.exerciseCurve, unit: "min")
                     if !health.stepsByDevice.isEmpty { devicesCard }
                     hourlyCard
                     weekCard
@@ -118,6 +123,30 @@ struct TodayView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .card()
+    }
+
+    private var restingCard: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "bed.double.fill")
+                .foregroundStyle(Theme.calorie)
+                .frame(width: 40, height: 40)
+                .background(Theme.calorie.opacity(0.15), in: Circle())
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Resting Energy").font(.subheadline).foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(Fmt.steps(health.restingEnergy)).font(.title2.weight(.bold).monospacedDigit())
+                    Text("kcal").font(.subheadline).foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("Total burned").font(.caption).foregroundStyle(.secondary)
+                Text("\(Fmt.steps(health.restingEnergy + health.energy)) kcal")
+                    .font(.subheadline.weight(.semibold).monospacedDigit())
+            }
+        }
         .padding(16)
         .card()
     }
@@ -251,6 +280,79 @@ struct TodayView: View {
 }
 
 // MARK: - Reusable pieces
+
+/// Today's running total vs. your average day, like HealthFit.
+struct CurveCard: View {
+    var title: String
+    var icon: String
+    var color: Color
+    var curve: DayCurve
+    var unit: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label(title, systemImage: icon)
+                .font(.headline)
+                .foregroundStyle(color)
+            HStack(spacing: 0) {
+                total(curve.averageNow, "Average", .gray)
+                total(curve.todayTotal, "Today", color)
+            }
+            Chart {
+                ForEach(curve.average) { p in
+                    LineMark(x: .value("Time", p.date), y: .value("Average", p.value), series: .value("S", "avg"))
+                        .foregroundStyle(Color.gray)
+                        .lineStyle(StrokeStyle(lineWidth: 2.5))
+                        .interpolationMethod(.monotone)
+                }
+                ForEach(curve.today) { p in
+                    LineMark(x: .value("Time", p.date), y: .value("Today", p.value), series: .value("S", "today"))
+                        .foregroundStyle(color)
+                        .lineStyle(StrokeStyle(lineWidth: 3.5))
+                        .interpolationMethod(.monotone)
+                }
+                if let last = curve.today.last {
+                    RuleMark(x: .value("Now", last.date))
+                        .foregroundStyle(.white.opacity(0.3))
+                    PointMark(x: .value("Now", last.date), y: .value("Today", last.value))
+                        .foregroundStyle(color)
+                        .symbolSize(90)
+                    PointMark(x: .value("Now", last.date), y: .value("Average", curve.averageNow))
+                        .foregroundStyle(Color.gray)
+                        .symbolSize(70)
+                }
+            }
+            .chartXScale(domain: dayDomain)
+            .chartXAxis {
+                AxisMarks(values: .stride(by: .hour, count: 6)) { _ in
+                    AxisTick().foregroundStyle(Theme.stroke)
+                    AxisValueLabel(format: .dateTime.hour())
+                }
+            }
+            .chartYAxis(.hidden)
+            .frame(height: 170)
+        }
+        .padding(16)
+        .card()
+    }
+
+    private var dayDomain: ClosedRange<Date> {
+        let start = Calendar.current.startOfDay(for: .now)
+        return start...Calendar.current.date(byAdding: .day, value: 1, to: start)!
+    }
+
+    private func total(_ v: Double, _ label: String, _ c: Color) -> some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                Text(Fmt.steps(v)).font(.system(size: 34, weight: .bold, design: .rounded).monospacedDigit())
+                Text(unit).font(.headline)
+            }
+            .foregroundStyle(c)
+            Text(label).font(.subheadline).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
 
 struct GoalRow: View {
     var metric: Metric
