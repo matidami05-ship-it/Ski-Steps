@@ -120,13 +120,19 @@ jobs:
           end
           exit(res.code == "200" ? 0 : 1)
           RUBY
-          for c in "$KEYS_DIR"/candidate*.pem; do
-            echo "Trying $(basename "$c")"
-            if KEY_PATH="$c" ruby "$RUNNER_TEMP/jwt.rb"; then
-              cp "$c" "$KEYS_DIR/AuthKey_$ASC_KEY_ID.p8"
-              echo "KEY_PATH=$KEYS_DIR/AuthKey_$ASC_KEY_ID.p8" >> "$GITHUB_ENV"
-              exit 0
-            fi
+          # Your account's Issuer ID (the same for every key; from Ski Radio's working setup).
+          KNOWN_ISSUER=0c392542-62b7-44e7-8f0e-800ec8ba3988
+          for iss in "$ASC_ISSUER_ID" "$KNOWN_ISSUER"; do
+            for c in "$KEYS_DIR"/candidate*.pem; do
+              echo "Trying $(basename "$c") with issuer ${iss:0:8}…"
+              if KEY_PATH="$c" ASC_ISSUER_ID="$iss" ruby "$RUNNER_TEMP/jwt.rb"; then
+                cp "$c" "$KEYS_DIR/AuthKey_$ASC_KEY_ID.p8"
+                echo "KEY_PATH=$KEYS_DIR/AuthKey_$ASC_KEY_ID.p8" >> "$GITHUB_ENV"
+                echo "ASC_ISSUER_ID=$iss" >> "$GITHUB_ENV"
+                [ "$iss" != "$ASC_ISSUER_ID" ] && echo "::warning::The ASC_ISSUER_ID secret was wrong; used your account's Issuer ID 0c392542-… instead. Update the secret to that value."
+                exit 0
+              fi
+            done
           done
           echo "::error::None of the keys in ASC_KEY_CONTENT work with this Key ID ($(printf '%s' "$ASC_KEY_ID" | cut -c1-2)…) and Issuer ID. Check that ASC_KEY_ID is the new key's ID and ASC_ISSUER_ID is the Issuer ID above the Team Keys list."
           exit 1
