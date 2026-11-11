@@ -59,6 +59,18 @@ jobs:
             echo "::error::The ASC_KEY_CONTENT secret isn't a valid private key (body is ${#BODY} characters; expected about 200). Re-copy the whole .p8 file text into the secret."
             exit 1
           fi
+          # Re-encode to canonical PKCS#8 (drops any stray characters that
+          # were pasted along with the key; Xcode's parser is strict).
+          openssl pkey -in "$KEY" -out "$KEY.clean"
+          openssl pkcs8 -topk8 -nocrypt -in "$KEY.clean" -out "$KEY"
+          rm -f "$KEY.clean"
+          KTYPE=$(openssl pkey -in "$KEY" -noout -text 2>/dev/null | head -1)
+          echo "Key type: $KTYPE"
+          case "$KTYPE" in
+            *256*) ;;
+            *) echo "::error::This isn't an App Store Connect API key (expected a 256-bit EC key, got: $KTYPE). Make sure ASC_KEY_CONTENT holds the AuthKey_….p8 text." ; exit 1 ;;
+          esac
+          printf 'Key ID length: %s (should be 10)\n' "$(printf '%s' "$ASC_KEY_ID" | tr -d '[:space:]' | wc -c)"
           echo "KEY_PATH=$KEY" >> "$GITHUB_ENV"
 
       - name: Archive (signed with HealthKit)
