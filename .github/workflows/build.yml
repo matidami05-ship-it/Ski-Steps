@@ -1,0 +1,54 @@
+name: Build iPhone app
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pick newest Xcode
+        run: sudo xcode-select -s "$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)"
+
+      - name: Generate Xcode project
+        run: |
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild -project SkiSteps.xcodeproj -scheme SkiSteps \
+            -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build > build.log 2>&1 || (grep -E "error:" build.log | head -40; tail -40 build.log; exit 1)
+
+      - name: Package IPA (entitlements embedded for re-signing)
+        run: |
+          APP=build/Build/Products/Release-iphoneos/SkiSteps.app
+          codesign -f -s - --entitlements SkiStepsWidget/SkiStepsWidget.entitlements "$APP/PlugIns/SkiStepsWidget.appex"
+          codesign -f -s - --entitlements SkiSteps/SkiSteps.entitlements "$APP"
+          mkdir -p Payload && cp -R "$APP" Payload/
+          zip -qry SkiSteps.ipa Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SkiSteps-ipa
+          path: SkiSteps.ipa
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Ski Steps build ${{ github.run_number }}
+          files: SkiSteps.ipa
+          make_latest: true
+          body: "Built from commit ${{ github.sha }}."

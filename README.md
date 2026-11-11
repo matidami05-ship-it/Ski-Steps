@@ -1,0 +1,29 @@
+# Ski Steps
+
+A step counter for iPhone that reads from Apple Health.
+
+- Big progress ring for today's steps (goes past 100% with a gold second lap)
+- Distance, floors climbed and active calories
+- Today-by-hour chart, this week's goal rings, streak and best day
+- History: week, month, 6 months and year charts with your goal line, tap a bar for details
+- Home Screen widgets (small, medium) and Lock Screen widgets
+- "Goal reached" notification, even when the app is closed
+- Adjustable daily goal, miles or kilometers
+
+## Install
+
+Every push to `main` builds `SkiSteps.ipa` with GitHub Actions and attaches it to the latest release.
+
+Download the IPA and install it with **Sideloadly** (or AltStore) signed in with your **paid Apple Developer account**. That gives you a 1-year install, and keeps HealthKit, background updates and the widget's app group working.
+
+On first launch, tap **Connect Apple Health** and turn on all categories, then allow notifications.
+
+## Project
+
+SwiftUI, iOS 17+. The Xcode project is generated from `project.yml` with XcodeGen:
+
+```
+brew install xcodegen
+xcodegen generate
+open SkiSteps.xcodeproj
+```

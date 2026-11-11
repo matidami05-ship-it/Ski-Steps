@@ -1,0 +1,9 @@
+build/
+*.xcodeproj/
+Payload/
+*.ipa
+.DS_Store
+SkiSteps/Info.plist
+SkiSteps/SkiSteps.entitlements
+SkiStepsWidget/Info.plist
+SkiStepsWidget/SkiStepsWidget.entitlements
