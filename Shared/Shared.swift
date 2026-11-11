@@ -119,7 +119,7 @@ struct StepSnapshot: Codable {
     var goals: [String: Double]
     var useMetric: Bool
 
-    static let groupID = "group.com.ski.steps"
+    static let groupID = "group.com.skistudio.steps"
     private static let key = "todaySnapshot.v2"
 
     static func load() -> StepSnapshot? {

@@ -17,13 +17,18 @@ A step counter for iPhone that reads from Apple Health.
 - "Goal reached" notification, even when the app is closed
 - Adjustable daily goal, miles or kilometers
 
-## Install
+## Install (TestFlight)
 
-Every push to `main` builds `SkiSteps.ipa` with GitHub Actions and attaches it to the latest release.
+Every push to `main` builds, signs (with HealthKit) and uploads the iPhone + Apple Watch app to TestFlight. Install it from the TestFlight app.
 
-Download the IPA and install it with **Sideloadly** (or AltStore) signed in with your **paid Apple Developer account**. That gives you a 1-year install, and keeps HealthKit, background updates and the widget's app group working.
+One-time setup:
+1. App Store Connect › Users and Access › Integrations › App Store Connect API › Team Keys › **+** (Access: **Admin**). Note the **Issuer ID** and **Key ID**, and download the `.p8` key.
+2. developer.apple.com › Account › Membership details: note your **Team ID**.
+3. This repo › Settings › Secrets and variables › Actions › New repository secret:
+   `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_CONTENT` (the full text of the .p8 file), `APPLE_TEAM_ID`.
+4. After the first TestFlight run registers the app's ID, create the app: App Store Connect › Apps › **+** › New App, bundle ID `com.skistudio.steps`. Then re-run the TestFlight workflow.
 
-On first launch, tap **Connect Apple Health** and turn on all categories, then allow notifications.
+Sideloading the unsigned IPA from Releases is not recommended: Apple Health only works when the app is signed with the HealthKit capability.
 
 ## Project
 
