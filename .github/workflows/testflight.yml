@@ -84,6 +84,35 @@ jobs:
           printf 'Key ID length: %s (should be 10)\n' "$(printf '%s' "$ASC_KEY_ID" | tr -d '[:space:]' | wc -c)"
           echo "KEY_PATH=$KEY" >> "$GITHUB_ENV"
 
+      - name: Test API key with Apple
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          cat > "$RUNNER_TEMP/jwt.rb" <<'RUBY'
+          require "openssl"; require "base64"; require "json"; require "net/http"
+          def b64(s) Base64.urlsafe_encode64(s, padding: false) end
+          key = OpenSSL::PKey::EC.new(File.read(ENV["KEY_PATH"]))
+          now = Time.now.to_i
+          header = { alg: "ES256", kid: ENV["ASC_KEY_ID"], typ: "JWT" }
+          payload = { iss: ENV["ASC_ISSUER_ID"], iat: now, exp: now + 600, aud: "appstoreconnect-v1" }
+          input = b64(header.to_json) + "." + b64(payload.to_json)
+          der = key.sign(OpenSSL::Digest::SHA256.new, input)
+          asn = OpenSSL::ASN1.decode(der)
+          raw = asn.value.map { |i| i.value.to_s(2).rjust(32, "\x00") }.join
+          jwt = input + "." + b64(raw)
+          uri = URI("https://api.appstoreconnect.apple.com/v1/apps?limit=1")
+          req = Net::HTTP::Get.new(uri); req["Authorization"] = "Bearer #{jwt}"
+          res = Net::HTTP.start(uri.host, uri.port, use_ssl: true) { |h| h.request(req) }
+          puts "Apple API status: #{res.code}"
+          case res.code
+          when "200" then puts "::notice::API key works with App Store Connect."
+          when "401" then puts "::error::Apple rejected the key (401). The .p8 text, Key ID and Issuer ID don't belong together. Most likely the key is from the 'In-App Purchase' or 'Individual Keys' tab, or the Key ID is from a different key. Create a new key under Users and Access › Integrations › App Store Connect API › Team Keys (Admin) and update all three secrets."
+          when "403" then puts "::error::The key works but doesn't have enough access (403). Create a Team Key with Admin access."
+          else puts "::error::Unexpected answer from Apple (#{res.code}): #{res.body[0, 300]}"
+          end
+          exit(res.code == "200" ? 0 : 1)
+          RUBY
+          ruby "$RUNNER_TEMP/jwt.rb"
+
       - name: Archive (signed with HealthKit)
         if: steps.check.outputs.skip != 'true'
         run: |
