@@ -36,6 +36,12 @@ struct WorkoutsView: View {
             ScrollView {
                 VStack(spacing: 16) {
                     startRunCard
+                    NavigationLink {
+                        ExercisesView()
+                    } label: {
+                        exercisesCard
+                    }
+                    .buttonStyle(.plain)
                     ForEach(detector.found) { run in detectedCard(run) }
                     weekCard
                     if kindsPresent.count > 2 { filterChips }
@@ -107,12 +113,40 @@ struct WorkoutsView: View {
         .buttonStyle(.plain)
     }
 
+    private var exercisesCard: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Image(systemName: "figure.core.training")
+                    .offset(x: -9, y: -6)
+                Image(systemName: "dumbbell.fill")
+                    .font(.system(size: 16, weight: .bold))
+                    .offset(x: 12, y: 12)
+            }
+            .font(.system(size: 26, weight: .bold))
+            .foregroundStyle(Theme.gold)
+            .frame(width: 60, height: 60)
+            .background(Theme.gold.opacity(0.15), in: Circle())
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Exercises & Gym").font(.title3.weight(.bold))
+                Text("\(ExerciseLibrary.all.count) bodyweight moves, guided circuits and \(GymLibrary.strength.count + GymLibrary.cardio.count) gym machines")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer()
+            Image(systemName: "chevron.right").font(.headline).foregroundStyle(.secondary)
+        }
+        .padding(18)
+        .card()
+    }
+
     private func detectedCard(_ run: DetectedRun) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 Image(systemName: "sparkles")
                     .foregroundStyle(Theme.gold)
-                Text("Run detected").font(.headline)
+                Image(systemName: run.icon).foregroundStyle(run.kind == .run ? Theme.run : Theme.accent)
+                Text("\(run.title) detected").font(.headline)
                 Spacer()
                 Text(run.start.formatted(.relative(presentation: .named)))
                     .font(.caption)
@@ -131,7 +165,8 @@ struct WorkoutsView: View {
                     savingRun = run
                     Task {
                         do {
-                            try await health.saveRun(start: run.start, end: run.end, meters: run.meters, detected: true)
+                            try await health.saveWorkout(run.activity, start: run.start, end: run.end, meters: run.meters,
+                                                         metadata: ["SkiStepsAutoDetected": true])
                             detector.dismiss(run)
                         } catch {
                             errorText = "Ski Steps needs permission to save workouts. Open Health › Sharing › Apps › Ski Steps and turn on Workouts."
@@ -152,7 +187,7 @@ struct WorkoutsView: View {
                 Button {
                     withAnimation { detector.dismiss(run) }
                 } label: {
-                    Text("Not a run")
+                    Text("Not a \(run.title.lowercased())")
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
@@ -240,7 +275,7 @@ struct WorkoutsView: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: "applewatch")
                 .foregroundStyle(Theme.accent2)
-            Text("Swims, rides and other workouts are detected by Apple Watch and appear here automatically. Runs are also detected from your iPhone's motion data.")
+            Text("Runs and walks are detected from your iPhone's motion data and saved automatically. Swims, rides and everything Apple Watch records appear here too.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -324,6 +359,8 @@ struct WorkoutRow: View {
 struct WorkoutDetailView: View {
     let summary: WorkoutSummary
     @EnvironmentObject private var health: HealthStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var confirmDelete = false
     @AppStorage("useMetric") private var metric = false
     @State private var route: [CLLocation] = []
     @State private var loaded = false
@@ -351,6 +388,36 @@ struct WorkoutDetailView: View {
                 if route.count > 1 { routeMap }
                 statsGrid
                 if !splits.isEmpty { splitsCard }
+                if let log = summary.workout.metadata?["SkiStepsGymLog"] as? String, !log.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("Sets", systemImage: "dumbbell.fill").font(.headline)
+                        ForEach(log.components(separatedBy: "\n"), id: \.self) { line in
+                            let parts = line.components(separatedBy: ": ")
+                            HStack {
+                                Text(parts.first ?? line).font(.subheadline.weight(.semibold))
+                                Spacer()
+                                Text(parts.dropFirst().joined(separator: ": "))
+                                    .font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .card()
+                }
+                if summary.autoDetected || summary.source == "Ski Steps" {
+                    Button(role: .destructive) {
+                        confirmDelete = true
+                    } label: {
+                        Label(summary.autoDetected ? "Not a workout — delete" : "Delete workout", systemImage: "trash")
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(Color.red.opacity(0.15), in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.red)
+                }
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 24)
@@ -358,6 +425,14 @@ struct WorkoutDetailView: View {
         .background(Theme.background.ignoresSafeArea())
         .navigationTitle(summary.name)
         .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog("Delete this workout from Apple Health?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                Task {
+                    try? await health.deleteWorkout(summary)
+                    dismiss()
+                }
+            }
+        }
         .task {
             guard !loaded else { return }
             loaded = true

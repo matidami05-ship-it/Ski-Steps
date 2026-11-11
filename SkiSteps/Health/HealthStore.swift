@@ -130,6 +130,7 @@ final class HealthStore: ObservableObject {
             HKObjectType.workoutType(),
             HKSeriesType.workoutRoute(),
             HKQuantityType(.distanceWalkingRunning),
+            HKQuantityType(.distanceCycling),
             HKQuantityType(.activeEnergyBurned),
         ]
     }
@@ -252,6 +253,9 @@ final class HealthStore: ObservableObject {
         }
         training = TrainingLoad.compute(workouts: workouts, restingHR: restingHR, maxHR: maxHR)
         await detector.scan(existing: workouts)
+        if await autoSaveDetected() {
+            workouts = await loadWorkouts()
+        }
         lastUpdated = now
 
         saveSnapshot()
@@ -401,34 +405,60 @@ final class HealthStore: ObservableObject {
     /// or from an auto-detected run (no route).
     func saveRun(start: Date, end: Date, meters: Double, locations: [CLLocation] = [],
                  pauses: [DateInterval] = [], detected: Bool = false) async throws {
-        let kg = await bodyMassKg()
-        let kcal = kg * (meters / 1000) * 1.0   // ~1 kcal per kg per km running
+        try await saveWorkout(.running, start: start, end: end, meters: meters, locations: locations,
+                              pauses: pauses, metadata: detected ? ["SkiStepsAutoDetected": true] : [:])
+    }
+
+    /// Saves any workout to Apple Health.
+    /// - kcal: active calories; when nil, estimated from distance for runs and walks.
+    func saveWorkout(_ activity: HKWorkoutActivityType, start: Date, end: Date,
+                     meters: Double = 0, distanceType: HKQuantityTypeIdentifier = .distanceWalkingRunning,
+                     kcal: Double? = nil, indoor: Bool? = nil, locations: [CLLocation] = [],
+                     pauses: [DateInterval] = [], events: [HKWorkoutEvent] = [],
+                     metadata: [String: Any] = [:], refreshAfter: Bool = true) async throws {
+        var energy = kcal ?? 0
+        if kcal == nil {
+            let kg = await bodyMassKg()
+            switch activity {
+            case .running: energy = kg * (meters / 1000) * 1.0
+            case .walking, .hiking: energy = kg * (meters / 1000) * 0.5
+            default: energy = 0
+            }
+        }
 
         let config = HKWorkoutConfiguration()
-        config.activityType = .running
-        config.locationType = locations.isEmpty ? .unknown : .outdoor
+        config.activityType = activity
+        if let indoor {
+            config.locationType = indoor ? .indoor : .outdoor
+        } else {
+            config.locationType = locations.isEmpty ? .unknown : .outdoor
+        }
         let builder = HKWorkoutBuilder(healthStore: store, configuration: config, device: .local())
         try await builder.beginCollection(at: start)
 
         var samples: [HKSample] = []
         if meters > 0 {
-            samples.append(HKQuantitySample(type: HKQuantityType(.distanceWalkingRunning),
+            samples.append(HKQuantitySample(type: HKQuantityType(distanceType),
                                             quantity: HKQuantity(unit: .meter(), doubleValue: meters),
                                             start: start, end: end))
         }
-        if kcal > 0 {
+        if energy > 0 {
             samples.append(HKQuantitySample(type: HKQuantityType(.activeEnergyBurned),
-                                            quantity: HKQuantity(unit: .kilocalorie(), doubleValue: kcal),
+                                            quantity: HKQuantity(unit: .kilocalorie(), doubleValue: energy),
                                             start: start, end: end))
         }
         if !samples.isEmpty { try await builder.addSamples(samples) }
 
-        let events = pauses.flatMap { p in
+        var allEvents = events
+        allEvents += pauses.flatMap { p in
             [HKWorkoutEvent(type: .pause, dateInterval: DateInterval(start: p.start, duration: 0), metadata: nil),
              HKWorkoutEvent(type: .resume, dateInterval: DateInterval(start: p.end, duration: 0), metadata: nil)]
         }
-        if !events.isEmpty { try await builder.addWorkoutEvents(events) }
-        if detected { try await builder.addMetadata(["SkiStepsAutoDetected": true]) }
+        if !allEvents.isEmpty { try await builder.addWorkoutEvents(allEvents) }
+
+        var meta = metadata
+        if let indoor { meta[HKMetadataKeyIndoorWorkout] = indoor }
+        if !meta.isEmpty { try await builder.addMetadata(meta) }
 
         try await builder.endCollection(at: end)
         guard let workout = try await builder.finishWorkout() else { return }
@@ -438,6 +468,31 @@ final class HealthStore: ObservableObject {
             try await routeBuilder.insertRouteData(locations)
             _ = try await routeBuilder.finishRoute(with: workout, metadata: nil)
         }
+        if refreshAfter { await refresh() }
+    }
+
+    /// Saves runs and walks the phone detected, when auto-save is on.
+    private func autoSaveDetected() async -> Bool {
+        var saved = false
+        for run in detector.toAutoSave {
+            do {
+                try await saveWorkout(run.activity, start: run.start, end: run.end, meters: run.meters,
+                                      metadata: ["SkiStepsAutoDetected": true], refreshAfter: false)
+                detector.dismiss(run)
+                detector.notifySaved(run)
+                saved = true
+            } catch {
+                lastError = "Couldn't save a detected \(run.title.lowercased()): \(error.localizedDescription)"
+            }
+        }
+        return saved
+    }
+
+    /// Deletes a workout Ski Steps saved (e.g. a detected walk that wasn't one).
+    func deleteWorkout(_ summary: WorkoutSummary) async throws {
+        try await store.delete(summary.workout)
+        detector.forget(start: summary.start)
+        workouts.removeAll { $0.id == summary.id }
         await refresh()
     }
 

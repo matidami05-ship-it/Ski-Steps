@@ -11,6 +11,10 @@ struct SettingsView: View {
     @AppStorage("activeGoal") private var activeGoal: Double = Metric.active.defaultGoal
     @AppStorage("autoDetectRuns") private var autoDetect = true
     @AppStorage("runVoice") private var runVoice = true
+    @AppStorage("autoDetectWalks") private var autoDetectWalks = true
+    @AppStorage("autoSaveDetected") private var autoSaveDetected = true
+    @AppStorage("detectAlerts") private var detectAlerts = true
+    @AppStorage("circuitVoice") private var circuitVoice = true
 
     private let presets: [Double] = [5_000, 7_500, 10_000, 12_500, 15_000]
 
@@ -66,12 +70,16 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Toggle("Detect runs automatically", isOn: $autoDetect)
+                    Toggle("Detect runs", isOn: $autoDetect)
+                    Toggle("Detect walks", isOn: $autoDetectWalks)
+                    Toggle("Save detected workouts automatically", isOn: $autoSaveDetected)
+                    Toggle("Notify when one is recorded", isOn: $detectAlerts)
                     Toggle("Spoken splits during runs", isOn: $runVoice)
+                    Toggle("Voice coach in circuits", isOn: $circuitVoice)
                 } header: {
                     Text("Workouts")
                 } footer: {
-                    Text("Ski Steps checks your iPhone's motion data for runs you didn't record and offers to save them. Swims and other workouts come from Apple Watch automatically.")
+                    Text("Ski Steps checks your iPhone's motion data for runs (5+ min) and walks (10+ min) you didn't record. With automatic saving on they go straight to Apple Health; otherwise you'll get a card to save them. Detection runs when the app opens and in the background as Health gets new steps.")
                 }
 
                 Section("Notifications") {
@@ -133,6 +141,8 @@ struct SettingsView: View {
             .onChange(of: calorieGoal) { _, _ in health.settingsChanged() }
             .onChange(of: activeGoal) { _, _ in health.settingsChanged() }
             .onChange(of: autoDetect) { _, _ in Task { await health.refresh() } }
+            .onChange(of: autoDetectWalks) { _, _ in Task { await health.refresh() } }
+            .onChange(of: autoSaveDetected) { _, _ in Task { await health.refresh() } }
             .onChange(of: metric) { _, _ in health.settingsChanged() }
         }
     }

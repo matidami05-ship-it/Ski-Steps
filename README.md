@@ -13,6 +13,8 @@ A step counter for iPhone that reads from Apple Health.
 - HealthFit-style charts: active energy and exercise minutes vs your average day, resting energy
 - Insights: Fitness (CTL), Fatigue (ATL), Form (TSB), training load ratio, training focus, 7-day goals
 - Workouts grouped by month with route maps and place names
+- Exercises & Gym: 30 bodyweight exercises with how-tos, guided timed circuits (built-in and custom) with a voice coach, gym strength machines with set/rep/weight logging, rest timer and last-weight memory, and timed cardio machines — all saved to Apple Health
+- Runs and walks are auto-detected from iPhone motion data and saved to Apple Health automatically
 - Home Screen widgets (small, medium) and Lock Screen widgets
 - "Goal reached" notification, even when the app is closed
 - Adjustable daily goal, miles or kilometers

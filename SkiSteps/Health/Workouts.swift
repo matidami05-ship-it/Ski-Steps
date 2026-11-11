@@ -97,6 +97,7 @@ struct WorkoutSummary: Identifiable {
     var source: String { workout.sourceRevision.source.name }
 
     var name: String {
+        if let routine = workout.metadata?["SkiStepsRoutine"] as? String { return routine }
         switch type {
         case .running: return isIndoor ? "Indoor Run" : "Outdoor Run"
         case .walking: return isIndoor ? "Indoor Walk" : "Outdoor Walk"
@@ -113,6 +114,7 @@ struct WorkoutSummary: Identifiable {
         case .crossTraining: return "Cross Training"
         case .yoga: return "Yoga"
         case .elliptical: return "Elliptical"
+        case .stairClimbing where isIndoor: return "Stair Climber"
         case .rowing: return "Rowing"
         case .stairClimbing, .stairs: return "Stairs"
         case .dance, .socialDance, .cardioDance: return "Dance"
@@ -154,38 +156,55 @@ struct WorkoutSummary: Identifiable {
     }
 }
 
-// MARK: - Run auto-detection
+// MARK: - Run & walk auto-detection
 
-/// A run the phone noticed but nobody recorded.
+/// A run or walk the phone noticed but nobody recorded.
 struct DetectedRun: Identifiable, Equatable {
+    enum Kind: String { case run, walk }
+    var kind: Kind
     var start: Date
     var end: Date
     var meters: Double
     var steps: Double
     var id: Date { start }
+
+    var title: String { kind == .run ? "Run" : "Walk" }
+    var icon: String { kind == .run ? "figure.run" : "figure.walk" }
+    var activity: HKWorkoutActivityType { kind == .run ? .running : .walking }
 }
 
-/// Looks through the phone's motion history (kept for 7 days) for running
-/// that wasn't recorded as a workout, and offers to save it.
+/// Looks through the phone's motion history (kept for 7 days) for runs and
+/// walks that weren't recorded as workouts. New ones are saved to Health
+/// automatically (or offered, if auto-save is off).
 @MainActor
 final class RunDetector: ObservableObject {
     @Published var found: [DetectedRun] = []
 
     private let activity = CMMotionActivityManager()
     private let pedometer = CMPedometer()
-    private let minLength: TimeInterval = 5 * 60
-    private let maxGap: TimeInterval = 2 * 60
 
     var enabled: Bool { UserDefaults.standard.object(forKey: "autoDetectRuns") as? Bool ?? true }
+    var walksEnabled: Bool { UserDefaults.standard.object(forKey: "autoDetectWalks") as? Bool ?? true }
+    var autoSave: Bool { UserDefaults.standard.object(forKey: "autoSaveDetected") as? Bool ?? true }
+
+    /// Only activity after this moment is saved automatically, so turning the
+    /// feature on doesn't flood Health with a week of old walks.
+    var autoSaveSince: Date {
+        let key = "autoSaveSince"
+        if let d = UserDefaults.standard.object(forKey: key) as? Date { return d }
+        let now = Date()
+        UserDefaults.standard.set(now, forKey: key)
+        return now
+    }
 
     private var dismissed: Set<Double> {
         get { Set(UserDefaults.standard.array(forKey: "dismissedRuns") as? [Double] ?? []) }
-        set { UserDefaults.standard.set(Array(newValue.suffix(200)), forKey: "dismissedRuns") }
+        set { UserDefaults.standard.set(Array(newValue.suffix(400)), forKey: "dismissedRuns") }
     }
 
     private var notified: Set<Double> {
         get { Set(UserDefaults.standard.array(forKey: "notifiedRuns") as? [Double] ?? []) }
-        set { UserDefaults.standard.set(Array(newValue.suffix(200)), forKey: "notifiedRuns") }
+        set { UserDefaults.standard.set(Array(newValue.suffix(400)), forKey: "notifiedRuns") }
     }
 
     func dismiss(_ run: DetectedRun) {
@@ -193,8 +212,13 @@ final class RunDetector: ObservableObject {
         found.removeAll { $0 == run }
     }
 
+    /// Stops a deleted auto-saved workout from being detected again.
+    func forget(start: Date) {
+        dismissed.insert(start.timeIntervalSince1970)
+    }
+
     func scan(existing workouts: [WorkoutSummary]) async {
-        guard enabled, CMMotionActivityManager.isActivityAvailable(),
+        guard enabled || walksEnabled, CMMotionActivityManager.isActivityAvailable(),
               CMMotionActivityManager.authorizationStatus() != .denied,
               CMMotionActivityManager.authorizationStatus() != .restricted else {
             found = []
@@ -204,57 +228,81 @@ final class RunDetector: ObservableObject {
         let start = Calendar.current.date(byAdding: .day, value: -7, to: end)!
         let activities = await query(from: start, to: end)
 
-        // Turn the activity stream into continuous running segments.
-        var segments: [DateInterval] = []
-        var runStart: Date?
-        for a in activities {
-            let isRun = a.running && a.confidence != .low
-            if isRun, runStart == nil { runStart = a.startDate }
-            if !isRun, let s = runStart {
-                segments.append(DateInterval(start: s, end: max(a.startDate, s)))
-                runStart = nil
+        let runs = enabled
+            ? segments(activities, end: end, maxGap: 2 * 60) { $0.running && $0.confidence != .low }
+            : []
+        let walks = walksEnabled
+            ? segments(activities, end: end, maxGap: 3 * 60) { $0.walking && $0.confidence != .low }
+            : []
+
+        let skip = dismissed
+        var results: [DetectedRun] = []
+
+        func covered(_ seg: DateInterval, by others: [DateInterval]) -> Bool {
+            others.contains { o in o.intersection(with: seg).map { $0.duration > seg.duration * 0.3 } ?? false }
+        }
+        let recorded = workouts.map { DateInterval(start: $0.start, end: max($0.end, $0.start)) }
+
+        for (kind, segs, minLength, minMeters) in [(DetectedRun.Kind.run, runs, 5.0 * 60, 400.0),
+                                                   (.walk, walks, 10.0 * 60, 700.0)] {
+            for seg in segs where seg.duration >= minLength {
+                // Still going right now? Wait until it's finished.
+                if end.timeIntervalSince(seg.end) < 3 * 60 { continue }
+                if skip.contains(seg.start.timeIntervalSince1970) { continue }
+                if covered(seg, by: recorded) { continue }
+                // A walk that's mostly a detected run is part of that run.
+                if kind == .walk, covered(seg, by: runs.filter { $0.duration >= 5 * 60 }) { continue }
+                let (meters, steps) = await pedometerData(from: seg.start, to: seg.end)
+                guard meters >= minMeters else { continue }
+                results.append(DetectedRun(kind: kind, start: seg.start, end: seg.end, meters: meters, steps: steps))
             }
         }
-        if let s = runStart { segments.append(DateInterval(start: s, end: end)) }
+        found = results.sorted { $0.start > $1.start }
+        if !autoSave { notifyFound() }
+    }
 
-        // Merge segments separated by short stops (traffic lights etc.).
+    /// Detected items that should be saved without asking.
+    var toAutoSave: [DetectedRun] {
+        guard autoSave else { return [] }
+        let since = autoSaveSince
+        return found.filter { $0.start >= since }
+    }
+
+    private func segments(_ activities: [CMMotionActivity], end: Date, maxGap: TimeInterval,
+                          match: (CMMotionActivity) -> Bool) -> [DateInterval] {
+        var raw: [DateInterval] = []
+        var segStart: Date?
+        for a in activities {
+            let on = match(a)
+            if on, segStart == nil { segStart = a.startDate }
+            if !on, let s = segStart {
+                raw.append(DateInterval(start: s, end: max(a.startDate, s)))
+                segStart = nil
+            }
+        }
+        if let s = segStart { raw.append(DateInterval(start: s, end: end)) }
+
+        // Merge pieces separated by short stops (traffic lights, crossings).
         var merged: [DateInterval] = []
-        for seg in segments {
+        for seg in raw {
             if let last = merged.last, seg.start.timeIntervalSince(last.end) <= maxGap {
                 merged[merged.count - 1] = DateInterval(start: last.start, end: max(last.end, seg.end))
             } else {
                 merged.append(seg)
             }
         }
-
-        let skip = dismissed
-        var results: [DetectedRun] = []
-        for seg in merged where seg.duration >= minLength {
-            // Still running right now? Wait until it's finished.
-            if end.timeIntervalSince(seg.end) < 60 { continue }
-            if skip.contains(seg.start.timeIntervalSince1970) { continue }
-            // Skip anything already covered by a recorded workout.
-            let overlaps = workouts.contains { w in
-                DateInterval(start: w.start, end: w.end).intersection(with: seg).map { $0.duration > seg.duration * 0.3 } ?? false
-            }
-            if overlaps { continue }
-            let (meters, steps) = await pedometerData(from: seg.start, to: seg.end)
-            guard meters > 400 else { continue }
-            results.append(DetectedRun(start: seg.start, end: seg.end, meters: meters, steps: steps))
-        }
-        found = results.sorted { $0.start > $1.start }
-        notifyNew()
+        return merged
     }
 
-    private func notifyNew() {
+    /// "Run detected — open to save" (used when auto-save is off).
+    private func notifyFound() {
         var sent = notified
         let metric = UserDefaults.standard.bool(forKey: "useMetric")
         for run in found where !sent.contains(run.start.timeIntervalSince1970) {
             sent.insert(run.start.timeIntervalSince1970)
-            // Only alert for recent runs, not week-old history on first launch.
             guard Date().timeIntervalSince(run.end) < 6 * 3600 else { continue }
             let content = UNMutableNotificationContent()
-            content.title = "Run detected 🏃"
+            content.title = run.kind == .run ? "Run detected 🏃" : "Walk detected 🚶"
             content.body = "\(Fmt.distance(run.meters, metric: metric)) \(Fmt.distanceUnit(metric)) in "
                 + "\(Fmt.clock(run.end.timeIntervalSince(run.start))) at "
                 + "\(run.start.formatted(date: .omitted, time: .shortened)). Open Ski Steps to save it."
@@ -264,6 +312,24 @@ final class RunDetector: ObservableObject {
                                       content: content, trigger: nil))
         }
         notified = sent
+    }
+
+    /// "Walk recorded" after an automatic save.
+    func notifySaved(_ run: DetectedRun) {
+        var sent = notified
+        guard !sent.contains(run.start.timeIntervalSince1970) else { return }
+        sent.insert(run.start.timeIntervalSince1970)
+        notified = sent
+        guard UserDefaults.standard.object(forKey: "detectAlerts") as? Bool ?? true else { return }
+        let metric = UserDefaults.standard.bool(forKey: "useMetric")
+        let content = UNMutableNotificationContent()
+        content.title = run.kind == .run ? "Run recorded 🏃" : "Walk recorded 🚶"
+        content.body = "\(Fmt.distance(run.meters, metric: metric)) \(Fmt.distanceUnit(metric)) in "
+            + "\(Fmt.clock(run.end.timeIntervalSince(run.start))) from "
+            + "\(run.start.formatted(date: .omitted, time: .shortened)). Saved to Apple Health."
+        UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: "saved-\(Int(run.start.timeIntervalSince1970))",
+                                  content: content, trigger: nil))
     }
 
     private func query(from start: Date, to end: Date) async -> [CMMotionActivity] {
