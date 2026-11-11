@@ -87,6 +87,11 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    NavigationLink {
+                        HealthCheckView()
+                    } label: {
+                        Label("Check Health connection", systemImage: "stethoscope")
+                    }
                     Button {
                         if let url = URL(string: "x-apple-health://") { openURL(url) }
                     } label: {
@@ -100,7 +105,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Apple Health")
                 } footer: {
-                    Text("To change what Ski Steps can read, open Health › your profile picture › Apps › Ski Steps.")
+                    Text("To change what Ski Steps can read, open Health › your profile picture › Apps › Ski Steps › Turn On All.")
                 }
 
                 Section {

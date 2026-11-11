@@ -90,6 +90,7 @@ final class HealthStore: ObservableObject {
     private var placeNames: [UUID: String] = [:]
     private var noRoute: Set<UUID> = []
     @Published var lastUpdated: Date?
+    @Published var lastError: String?
 
     let store = HKHealthStore()
     let detector = RunDetector()
@@ -134,6 +135,15 @@ final class HealthStore: ObservableObject {
     }
 
     var daily: [StepPoint] { history[.steps] ?? [] }
+    var healthReadTypes: Set<HKObjectType> { readTypes }
+    var healthShareTypes: Set<HKSampleType> { shareTypes }
+
+    /// Remembers a Health error so it can be shown instead of silently showing zeros.
+    nonisolated func note(_ error: Error?) {
+        guard let error, (error as? HKError)?.code != .errorNoData else { return }
+        let text = error.localizedDescription
+        Task { @MainActor in self.lastError = text }
+    }
 
     init() {
         // Observers are set up right away so iOS can wake the app in the
@@ -168,7 +178,12 @@ final class HealthStore: ObservableObject {
     }
 
     func requestAccess() async {
-        try? await store.requestAuthorization(toShare: shareTypes, read: readTypes)
+        do {
+            try await store.requestAuthorization(toShare: shareTypes, read: readTypes)
+            lastError = nil
+        } catch {
+            lastError = error.localizedDescription
+        }
         _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
         access = .ready
         await refresh()
@@ -249,7 +264,8 @@ final class HealthStore: ObservableObject {
             let predicate = HKQuery.predicateForSamples(withStart: start, end: end, options: .strictStartDate)
             let query = HKStatisticsQuery(quantityType: HKQuantityType(id),
                                           quantitySamplePredicate: predicate,
-                                          options: .cumulativeSum) { _, stats, _ in
+                                          options: .cumulativeSum) { [weak self] _, stats, error in
+                self?.note(error)
                 cont.resume(returning: stats?.sumQuantity()?.doubleValue(for: unit) ?? 0)
             }
             store.execute(query)
@@ -354,7 +370,8 @@ final class HealthStore: ObservableObject {
                                                     options: .cumulativeSum,
                                                     anchorDate: start,
                                                     intervalComponents: interval)
-            query.initialResultsHandler = { _, results, _ in
+            query.initialResultsHandler = { [weak self] _, results, error in
+                self?.note(error)
                 var points: [StepPoint] = []
                 results?.enumerateStatistics(from: start, to: end) { stats, _ in
                     points.append(StepPoint(date: stats.startDate,

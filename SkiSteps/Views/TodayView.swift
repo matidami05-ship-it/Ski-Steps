@@ -115,11 +115,22 @@ struct TodayView: View {
             Image(systemName: "exclamationmark.circle.fill")
                 .foregroundStyle(.yellow)
                 .font(.title3)
-            VStack(alignment: .leading, spacing: 4) {
-                Text("No step data yet").font(.headline)
-                Text("If you've been walking, check that Ski Steps is allowed to read Steps in the Health app: Sharing › Apps › Ski Steps.")
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Not getting data from Apple Health").font(.headline)
+                Text(health.lastError.map { "iOS says: \($0)" }
+                     ?? "Ski Steps can't see any steps yet. Run the check to find out why.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+                NavigationLink {
+                    HealthCheckView()
+                } label: {
+                    Label("Check Health connection", systemImage: "stethoscope")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(Theme.accent, in: Capsule())
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
