@@ -85,6 +85,7 @@ final class HealthStore: ObservableObject {
     @Published var restingHR: Double = 60
     @Published var maxHR: Double = 190
     @Published var training: TrainingLoad = .empty
+    @Published var nights: [SleepNight] = []
 
     private var routeImages: [UUID: UIImage] = [:]
     private var placeNames: [UUID: String] = [:]
@@ -119,6 +120,7 @@ final class HealthStore: ObservableObject {
             HKQuantityType(.heartRate),
             HKQuantityType(.restingHeartRate),
             HKQuantityType(.basalEnergyBurned),
+            HKCategoryType(.sleepAnalysis),
             HKCharacteristicType(.dateOfBirth),
             HKObjectType.workoutType(),
             HKSeriesType.workoutRoute(),
@@ -218,6 +220,7 @@ final class HealthStore: ObservableObject {
         async let basal = sum(.basalEnergyBurned, unit: .kilocalorie(), from: today, to: now)
         async let eCurve = curve(.activeEnergyBurned, unit: .kilocalorie())
         async let xCurve = curve(.appleExerciseTime, unit: .minute())
+        async let sleep = loadSleep()
         async let rhr = latest(.restingHeartRate, unit: HKUnit.count().unitDivided(by: .minute()))
 
         steps = await s
@@ -251,6 +254,7 @@ final class HealthStore: ObservableObject {
            let age = cal.dateComponents([.year], from: dob, to: now).year, age > 5 {
             maxHR = Double(220 - age)
         }
+        nights = await sleep
         training = TrainingLoad.compute(workouts: workouts, restingHR: restingHR, maxHR: maxHR)
         await detector.scan(existing: workouts)
         if await autoSaveDetected() {

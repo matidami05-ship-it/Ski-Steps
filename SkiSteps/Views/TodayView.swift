@@ -3,6 +3,7 @@ import Charts
 
 struct TodayView: View {
     @EnvironmentObject private var health: HealthStore
+    @State private var showSettings = false
     @AppStorage("dailyGoal") private var goal: Double = 10_000
     @AppStorage("useMetric") private var metric = false
     @AppStorage("distanceGoal") private var distanceGoal: Double = Metric.distance.defaultGoal
@@ -34,6 +35,13 @@ struct TodayView: View {
             }
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle(Date.now.formatted(.dateTime.weekday(.wide).month().day()))
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button { showSettings = true } label: { Image(systemName: "gearshape.fill") }
+                        .accessibilityLabel("Settings")
+                }
+            }
+            .sheet(isPresented: $showSettings) { SettingsView() }
             .navigationBarTitleDisplayMode(.inline)
             .refreshable { await health.refresh() }
             .sensoryFeedback(.success, trigger: celebrate)

@@ -88,6 +88,7 @@ struct TrainingLoad {
 
 struct InsightsView: View {
     @EnvironmentObject private var health: HealthStore
+    @State private var showSettings = false
     @AppStorage("dailyGoal") private var stepGoal: Double = 10_000
     @AppStorage("useMetric") private var useMetric = false
     @State private var selected: Date?
@@ -98,6 +99,8 @@ struct InsightsView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
+                    AICoachCard(kind: "overall", title: "AI Coach", icon: "sparkles", color: Theme.accent,
+                                prompt: { health.overallPrompt() })
                     sectionTitle("Fitness")
                     fitnessCard
                     ratioCard
@@ -114,6 +117,13 @@ struct InsightsView: View {
             }
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle("Insights")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button { showSettings = true } label: { Image(systemName: "gearshape.fill") }
+                        .accessibilityLabel("Settings")
+                }
+            }
+            .sheet(isPresented: $showSettings) { SettingsView() }
             .refreshable { await health.refresh() }
         }
     }

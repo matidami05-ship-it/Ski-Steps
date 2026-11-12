@@ -16,6 +16,8 @@ struct SettingsView: View {
     @AppStorage("detectAlerts") private var detectAlerts = true
     @AppStorage("circuitVoice") private var circuitVoice = true
     @AppStorage("recordRoutes") private var recordRoutes = true
+    @AppStorage("sleepGoal") private var sleepGoal: Double = 8
+    @Environment(\.dismiss) private var dismiss
     @ObservedObject private var routes = RouteRecorder.shared
 
     private let presets: [Double] = [5_000, 7_500, 10_000, 12_500, 15_000]
@@ -65,6 +67,16 @@ struct SettingsView: View {
                     Stepper(value: $activeGoal, in: 5...300, step: 5) {
                         goalLabel(.active, "\(Fmt.minutes(activeGoal)) min")
                     }
+                    Stepper(value: $sleepGoal, in: 5...11, step: 0.25) {
+                        HStack {
+                            Label("Sleep", systemImage: "bed.double.fill")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Text(SleepFmt.hours(sleepGoal * 3600))
+                                .font(.headline.monospacedDigit())
+                                .foregroundStyle(SleepStage.rem.color)
+                        }
+                    }
                 } header: {
                     Text("Daily goals")
                 } footer: {
@@ -92,6 +104,16 @@ struct SettingsView: View {
                     Text("Workouts")
                 } footer: {
                     Text("Ski Steps checks your iPhone's motion data for runs (5+ min) and walks (10+ min) you didn't record. With automatic saving on they go straight to Apple Health; otherwise you'll get a card to save them. Route maps turn GPS on only while you're moving on foot or by bike. Detection runs when the app opens and in the background as Health gets new steps.")
+                }
+
+                Section {
+                    NavigationLink {
+                        AISettingsView()
+                    } label: {
+                        Label("AI Coach", systemImage: "sparkles")
+                    }
+                } footer: {
+                    Text("Uses Apple Intelligence on supported iPhones, or Claude with your own API key.")
                 }
 
                 Section("Notifications") {
@@ -148,6 +170,9 @@ struct SettingsView: View {
             .scrollContentBackground(.hidden)
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
             .onChange(of: goal) { _, _ in health.settingsChanged() }
             .onChange(of: distanceGoal) { _, _ in health.settingsChanged() }
             .onChange(of: calorieGoal) { _, _ in health.settingsChanged() }

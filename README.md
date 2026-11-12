@@ -15,6 +15,8 @@ A step counter for iPhone that reads from Apple Health.
 - Workouts grouped by month with route maps and place names
 - Exercises & Gym: 30 bodyweight exercises with how-tos, guided timed circuits (built-in and custom) with a voice coach, gym strength machines with set/rep/weight logging, rest timer and last-weight memory, and timed cardio machines — all saved to Apple Health
 - Runs and walks are auto-detected from iPhone motion data and saved to Apple Health automatically, with route maps recorded in the background (GPS only while moving on foot or by bike)
+- Sleep tab: last night's score, stages (Deep/Core/REM from Apple Watch or Oura), 7/30-night trends, bedtime consistency
+- AI Coach: weekly activity and sleep analysis using Apple Intelligence on device, or Claude with your own API key
 - Home Screen widgets (small, medium) and Lock Screen widgets
 - "Goal reached" notification, even when the app is closed
 - Adjustable daily goal, miles or kilometers

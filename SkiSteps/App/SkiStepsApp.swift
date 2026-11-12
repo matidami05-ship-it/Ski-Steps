@@ -66,12 +66,12 @@ struct MainTabs: View {
                 .tabItem { Label("Today", systemImage: "figure.walk") }
             WorkoutsView()
                 .tabItem { Label("Workouts", systemImage: "figure.run") }
+            SleepView()
+                .tabItem { Label("Sleep", systemImage: "bed.double.fill") }
             InsightsView()
                 .tabItem { Label("Insights", systemImage: "chart.line.uptrend.xyaxis") }
             HistoryView()
                 .tabItem { Label("History", systemImage: "chart.bar.fill") }
-            SettingsView()
-                .tabItem { Label("Settings", systemImage: "gearshape.fill") }
         }
     }
 }
@@ -93,7 +93,7 @@ struct OnboardingView: View {
             VStack(spacing: 10) {
                 Text("Ski Steps")
                     .font(.system(size: 38, weight: .bold, design: .rounded))
-                Text("Steps, distance, calories, active time and workouts from Apple Health — with goals, streaks, run tracking and history.")
+                Text("Steps, distance, calories, active time, sleep and workouts from Apple Health — with goals, streaks, run tracking and history.")
                     .font(.body)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
