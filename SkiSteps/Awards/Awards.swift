@@ -5,8 +5,9 @@ import UserNotifications
 /// A badge you earn from your Apple Health data.
 struct Award: Identifiable, Hashable {
     enum Category: String, CaseIterable, Identifiable {
-        case steps = "Daily Steps", streaks = "Streaks", lifetime = "Lifetime", distance = "Distance",
-             workouts = "Workouts", running = "Running", special = "Special", sleep = "Sleep", monthly = "Monthly"
+        case steps = "Daily Steps", streaks = "Streaks", goals = "Goal Days", lifetime = "Lifetime",
+             distance = "Distance", journeys = "Journeys", walking = "Walking", running = "Running",
+             workouts = "Workouts", special = "Special", sleep = "Sleep", monthly = "Monthly"
         var id: Self { self }
     }
 
@@ -258,7 +259,11 @@ enum AwardsEngine {
                          progress: min(monthSteps / max(monthTarget, 1), 1),
                          progressText: "\(n(monthSteps)) / \(n(monthTarget)) steps"))
 
-        return out
+        return out + evaluateMore(health)
+    }
+
+    static func points(_ awards: [Award]) -> Int {
+        awards.filter(\.isEarned).reduce(0) { $0 + $1.tier.points }
     }
 
     /// Sends a notification for awards earned since the last check.
@@ -282,6 +287,19 @@ enum AwardsEngine {
             UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "award-\(a.id)", content: content, trigger: nil))
         }
         UserDefaults.standard.set(Array(seen), forKey: key)
+
+        // Level ups
+        let level = AwardLevel.info(points: points(awards)).level
+        let savedLevel = UserDefaults.standard.integer(forKey: "awardLevel")
+        if savedLevel > 0, level > savedLevel {
+            let content = UNMutableNotificationContent()
+            content.title = "⭐️ Level up! Level \(level)"
+            content.body = "You're now a \(AwardLevel.title(level)). Keep it going!"
+            content.sound = .default
+            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "level-\(level)", content: content, trigger: nil))
+        }
+        UserDefaults.standard.set(level, forKey: "awardLevel")
+
         var recent = UserDefaults.standard.stringArray(forKey: "awardsNew") ?? []
         recent = fresh.map(\.id) + recent.filter { id in !fresh.contains { $0.id == id } }
         UserDefaults.standard.set(Array(recent.prefix(10)), forKey: "awardsNew")

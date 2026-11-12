@@ -97,7 +97,15 @@ struct AwardsView: View {
             }
             .frame(width: 96, height: 96)
             VStack(alignment: .leading, spacing: 6) {
-                Text("Your trophy case").font(.headline)
+                let pts = AwardsEngine.points(health.awards)
+                let lv = AwardLevel.info(points: pts)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("Level \(lv.level)").font(.headline)
+                    Text(AwardLevel.title(lv.level)).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.gold)
+                }
+                GoalBar(progress: Double(lv.into) / Double(lv.needed), color: Theme.gold)
+                Text("\(pts) pts · \(lv.needed - lv.into) to level \(lv.level + 1)")
+                    .font(.caption2).foregroundStyle(.secondary)
                 HStack(spacing: -10) {
                     ForEach(earned.sorted { ($0.earned ?? .distantPast) > ($1.earned ?? .distantPast) }.prefix(5)) { a in
                         AwardBadge(award: a, size: 34).overlay(Circle().stroke(Theme.bgTop, lineWidth: 2))
@@ -184,6 +192,7 @@ struct AwardDetailView: View {
                 .padding(.top, 30)
             Text(award.title).font(.title.weight(.bold))
             Text(award.detail).multilineTextAlignment(.center).foregroundStyle(.secondary).padding(.horizontal, 30)
+            Text("+\(award.tier.points) pts").font(.caption.weight(.bold)).foregroundStyle(Theme.gold)
             if let date = award.earned {
                 Label("Earned \(date.formatted(date: .long, time: .omitted))", systemImage: "checkmark.seal.fill")
                     .font(.subheadline.weight(.semibold)).foregroundStyle(award.colors[0])
@@ -250,6 +259,10 @@ struct AwardsTodayCard: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Label("Awards", systemImage: "medal.fill").font(.headline).foregroundStyle(Theme.gold)
+                    Text("Lv \(AwardLevel.info(points: AwardsEngine.points(health.awards)).level)")
+                        .font(.caption.weight(.bold))
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(Theme.gold.opacity(0.2), in: Capsule())
                     if !fresh.isEmpty {
                         Text("\(fresh.count) NEW").font(.caption2.weight(.heavy))
                             .padding(.horizontal, 7).padding(.vertical, 3)

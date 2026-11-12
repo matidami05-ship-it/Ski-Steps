@@ -18,7 +18,7 @@ A step counter for iPhone that reads from Apple Health.
 - Sleep tab: last night's score, stages (Deep/Core/REM from Apple Watch or Oura), 7/30-night trends, bedtime consistency
 - AI Coach: weekly activity and sleep analysis using Apple Intelligence on device, or Claude with your own API key
 - Workout details: heart rate zones, heart rate profile, speed, effort radar vs your average, and a per-workout AI Coach
-- Awards: 45+ badges and milestones (daily steps, streaks, lifetime steps and distance, workouts, running, sleep, special and a monthly challenge) earned from your Health history, with notifications and sharing
+- Awards: 150+ badges with levels and milestones (daily steps, streaks, lifetime steps and distance, workouts, running, sleep, special and a monthly challenge) earned from your Health history, with notifications and sharing
 - Home Screen widgets (small, medium) and Lock Screen widgets
 - "Goal reached" notification, even when the app is closed
 - Adjustable daily goal, miles or kilometers
