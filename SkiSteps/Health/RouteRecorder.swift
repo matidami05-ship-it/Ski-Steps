@@ -2,26 +2,28 @@ import Foundation
 import CoreLocation
 import CoreMotion
 
-/// Records GPS routes in the background while you're walking, running or
-/// cycling, so auto-detected workouts can be saved with a route map.
+/// Records GPS routes in the background while you walk, run or cycle, so
+/// auto-detected workouts can be saved with a route map.
 ///
-/// How it stays light on battery:
-/// - While you're still or driving, it only keeps a low-power (cell/Wi-Fi)
-///   location running, which keeps the app awake to watch the motion sensor.
-/// - The moment the motion sensor says walking/running/cycling, it switches to
-///   full GPS and saves points. It drops back after 3 minutes without moving.
-/// - If iOS closes the app, "significant location change" relaunches it.
+/// Uses Apple's live location updates (iOS 17+) with a background activity
+/// session: GPS pauses by itself while you're still and resumes as soon as
+/// you move, and iOS relaunches the app in the background if it was closed.
+/// Visit and significant-change monitoring are extra wake-up triggers.
+/// Points faster than ~30 km/h (driving) aren't kept.
 @MainActor
 final class RouteRecorder: NSObject, ObservableObject {
     static let shared = RouteRecorder()
 
     @Published private(set) var authorization: CLAuthorizationStatus
     @Published private(set) var recording = false
+    @Published private(set) var lastPoint: Date?
 
     private let manager = CLLocationManager()
     private let motion = CMMotionActivityManager()
     private var lastMoving: Date?
     private var started = false
+    private var session: CLBackgroundActivitySession?
+    private var updatesTask: Task<Void, Never>?
     private var buffer: [String] = []
     private var lastFlush = Date()
 
@@ -45,7 +47,8 @@ final class RouteRecorder: NSObject, ObservableObject {
 
     // MARK: Control
 
-    /// Call at launch. Does nothing until location permission is granted.
+    /// Call at launch (including background relaunches). Does nothing until
+    /// location permission is granted.
     func start() {
         authorization = manager.authorizationStatus
         guard enabled else { stop(); return }
@@ -54,26 +57,59 @@ final class RouteRecorder: NSObject, ObservableObject {
         started = true
         pruneOldPoints()
 
-        manager.allowsBackgroundLocationUpdates = true
-        lowPower()
-        manager.startUpdatingLocation()
+        // Keeps the app able to receive location in the background, and lets
+        // iOS relaunch it if it was terminated while the session was active.
+        session = CLBackgroundActivitySession()
+        startLiveUpdates()
+
         if authorization == .authorizedAlways {
             manager.startMonitoringSignificantLocationChanges()
+            manager.startMonitoringVisits()
         }
 
-        guard CMMotionActivityManager.isActivityAvailable() else { return }
-        motion.startActivityUpdates(to: .main) { [weak self] activity in
-            guard let activity else { return }
-            Task { @MainActor in self?.handle(activity) }
+        if CMMotionActivityManager.isActivityAvailable() {
+            motion.startActivityUpdates(to: .main) { [weak self] activity in
+                guard let activity else { return }
+                Task { @MainActor in self?.handle(activity) }
+            }
+        }
+    }
+
+    private func startLiveUpdates() {
+        updatesTask?.cancel()
+        updatesTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    for try await update in CLLocationUpdate.liveUpdates(.fitness) {
+                        guard let self else { return }
+                        if update.isStationary {
+                            self.recording = false
+                            self.flush()
+                            continue
+                        }
+                        if let loc = update.location {
+                            self.store([loc])
+                        }
+                    }
+                } catch {
+                    // Stream ended (e.g. permission change); try again shortly.
+                }
+                try? await Task.sleep(for: .seconds(15))
+            }
         }
     }
 
     func stop() {
         started = false
         recording = false
+        updatesTask?.cancel()
+        updatesTask = nil
+        session?.invalidate()
+        session = nil
         motion.stopActivityUpdates()
         manager.stopUpdatingLocation()
         manager.stopMonitoringSignificantLocationChanges()
+        manager.stopMonitoringVisits()
         flush()
     }
 
@@ -87,41 +123,32 @@ final class RouteRecorder: NSObject, ObservableObject {
         }
     }
 
-    // MARK: Motion → GPS accuracy
+    // MARK: Motion (for the status display)
 
     private func handle(_ a: CMMotionActivity) {
         let moving = (a.walking || a.running || a.cycling) && a.confidence != .low
-        if moving {
-            lastMoving = Date()
-            if !recording { highAccuracy() }
-        } else if recording, let last = lastMoving, Date().timeIntervalSince(last) > 180 {
-            lowPower()
-        }
-    }
-
-    private func highAccuracy() {
-        recording = true
-        manager.desiredAccuracy = kCLLocationAccuracyBest
-        manager.distanceFilter = 8
-    }
-
-    private func lowPower() {
-        recording = false
-        manager.desiredAccuracy = kCLLocationAccuracyThreeKilometers
-        manager.distanceFilter = 500
-        flush()
+        if moving { lastMoving = Date() }
     }
 
     // MARK: Storage
 
     private func store(_ locations: [CLLocation]) {
-        guard recording else { return }
         for l in locations where l.horizontalAccuracy >= 0 && l.horizontalAccuracy <= 50 {
+            // Skip driving speeds (> ~30 km/h); walks, runs and rides stay.
+            if l.speed > 8.5 { continue }
+            recording = true
+            lastPoint = l.timestamp
             buffer.append(String(format: "%.1f,%.6f,%.6f,%.1f,%.1f,%.2f,%.1f",
                                  l.timestamp.timeIntervalSince1970, l.coordinate.latitude, l.coordinate.longitude,
                                  l.altitude, l.horizontalAccuracy, max(l.speed, -1), l.course))
         }
         if buffer.count >= 30 || Date().timeIntervalSince(lastFlush) > 60 { flush() }
+    }
+
+    /// Points saved in the last 24 hours and when the newest one was taken.
+    func stats() -> (count: Int, newest: Date?) {
+        let pts = points(from: Date().addingTimeInterval(-86400), to: Date())
+        return (pts.count, pts.last?.timestamp)
     }
 
     private func flush() {
@@ -172,7 +199,12 @@ final class RouteRecorder: NSObject, ObservableObject {
 
 extension RouteRecorder: CLLocationManagerDelegate {
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        Task { @MainActor in self.store(locations) }
+        // Significant-change wake-ups: make sure live updates are running.
+        Task { @MainActor in self.start() }
+    }
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didVisit visit: CLVisit) {
+        Task { @MainActor in self.start() }
     }
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {

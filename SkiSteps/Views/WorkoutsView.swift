@@ -622,9 +622,22 @@ struct WorkoutDetailView: View {
 
 // MARK: - Detection log
 
+private extension DetectionLogView {
+    var permissionText: String {
+        switch routes.authorization {
+        case .authorizedAlways: return "Always"
+        case .authorizedWhenInUse: return "While Using"
+        case .denied, .restricted: return "Off"
+        default: return "Not asked yet"
+        }
+    }
+}
+
 struct DetectionLogView: View {
     @EnvironmentObject private var health: HealthStore
     @EnvironmentObject private var detector: RunDetector
+    @ObservedObject private var routes = RouteRecorder.shared
+    @State private var gps: (count: Int, newest: Date?) = (0, nil)
     @AppStorage("useMetric") private var metric = false
     @AppStorage("minWalkMinutes") private var minWalk: Double = 5
     @State private var checking = false
@@ -660,6 +673,31 @@ struct DetectionLogView: View {
                 Text("Your iPhone's motion data is checked when you open the app, pull to refresh, and in the background (iOS decides how often — usually within an hour). A walk is saved about 2 minutes after you stop moving.")
             }
 
+            Section {
+                HStack {
+                    Text("Location permission")
+                    Spacer()
+                    Text(permissionText).foregroundStyle(routes.hasAlways ? Theme.accent : .orange)
+                }
+                HStack {
+                    Text("GPS points, last 24 h")
+                    Spacer()
+                    Text("\(gps.count)").monospacedDigit().foregroundStyle(gps.count > 0 ? Theme.accent : .orange)
+                }
+                HStack {
+                    Text("Latest point")
+                    Spacer()
+                    Text(gps.newest?.formatted(.dateTime.weekday(.abbreviated).hour().minute()) ?? "None yet")
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("Route maps")
+            } footer: {
+                Text(routes.hasAlways
+                     ? "GPS turns on when you move and pauses when you're still. Points at driving speed aren't kept. Walks saved without a map get one added once points are available."
+                     : "Route maps need Location set to Always: iPhone Settings › Ski Steps › Location › Always.")
+            }
+
             Section("Last 48 hours") {
                 if detector.report.isEmpty {
                     Text("No walking or running periods of a minute or more found.")
@@ -679,6 +717,12 @@ struct DetectionLogView: View {
                             Text(item.status)
                                 .font(.caption)
                                 .foregroundStyle(item.saved ? Theme.accent : .orange)
+                            if item.saved {
+                                let n = routes.points(from: item.start, to: item.end).count
+                                Text(n > 0 ? "\(n) GPS points for the map" : "No GPS points for this one")
+                                    .font(.caption2)
+                                    .foregroundStyle(n > 0 ? Color.secondary : Color.orange)
+                            }
                         }
                     }
                 }
@@ -687,6 +731,11 @@ struct DetectionLogView: View {
         .scrollContentBackground(.hidden)
         .background(Theme.background.ignoresSafeArea())
         .navigationTitle("Walk & Run Detection")
+        .task { gps = routes.stats() }
+        .refreshable {
+            await health.refresh()
+            gps = routes.stats()
+        }
         .navigationBarTitleDisplayMode(.inline)
     }
 }

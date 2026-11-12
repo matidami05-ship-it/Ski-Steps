@@ -260,6 +260,7 @@ final class HealthStore: ObservableObject {
         if await autoSaveDetected() {
             workouts = await loadWorkouts()
         }
+        await backfillRoutes()
         lastUpdated = now
 
         saveSnapshot()
@@ -491,6 +492,38 @@ final class HealthStore: ObservableObject {
             }
         }
         return saved
+    }
+
+    /// Adds a map to auto-detected walks/runs saved without one, when the
+    /// background recorder has GPS points for that time.
+    private func backfillRoutes() async {
+        let key = "routeBackfillDone"
+        var done = Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
+        let since = Date().addingTimeInterval(-8 * 86400)
+        for w in workouts where w.autoDetected && w.start >= since && !done.contains(w.id.uuidString) {
+            let existing = await route(for: w.workout)
+            if !existing.isEmpty {
+                done.insert(w.id.uuidString)
+                continue
+            }
+            let pts = RouteRecorder.shared.points(from: w.start.addingTimeInterval(-30), to: w.end.addingTimeInterval(30))
+            if pts.count >= 10 {
+                let builder = HKWorkoutRouteBuilder(healthStore: store, device: .local())
+                do {
+                    try await builder.insertRouteData(pts)
+                    _ = try await builder.finishRoute(with: w.workout, metadata: nil)
+                    noRoute.remove(w.id)
+                    routeImages[w.id] = nil
+                    done.insert(w.id.uuidString)
+                } catch {
+                    lastError = "Couldn't add a route map: \(error.localizedDescription)"
+                }
+            } else if Date().timeIntervalSince(w.end) > 3600 {
+                // No GPS for it and it's over an hour old — stop checking.
+                done.insert(w.id.uuidString)
+            }
+        }
+        UserDefaults.standard.set(Array(done.suffix(500)), forKey: key)
     }
 
     /// GPS points the background recorder captured during a detected run/walk.
