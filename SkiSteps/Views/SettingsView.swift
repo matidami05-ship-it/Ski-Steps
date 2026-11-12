@@ -103,7 +103,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Workouts")
                 } footer: {
-                    Text("Ski Steps checks your iPhone's motion data for runs (5+ min) and walks (10+ min) you didn't record. With automatic saving on they go straight to Apple Health; otherwise you'll get a card to save them. Route maps turn GPS on only while you're moving on foot or by bike. Detection runs when the app opens and in the background as Health gets new steps.")
+                    Text("Ski Steps checks your iPhone's motion data for runs (3+ min) and walks (5+ min by default — change it under Workouts › Details) you didn't record. With automatic saving on they go straight to Apple Health; otherwise you'll get a card to save them. Route maps turn GPS on only while you're moving on foot or by bike. Detection runs when the app opens and in the background as Health gets new steps.")
                 }
 
                 Section {

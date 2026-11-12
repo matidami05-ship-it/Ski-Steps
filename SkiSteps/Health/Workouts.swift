@@ -176,9 +176,23 @@ struct DetectedRun: Identifiable, Equatable {
 /// Looks through the phone's motion history (kept for 7 days) for runs and
 /// walks that weren't recorded as workouts. New ones are saved to Health
 /// automatically (or offered, if auto-save is off).
+/// One period of walking/running the phone noticed, and what happened to it.
+struct ScanItem: Identifiable {
+    let id = UUID()
+    var kind: DetectedRun.Kind
+    var start: Date
+    var end: Date
+    var meters: Double?
+    var status: String
+    var saved: Bool
+}
+
 @MainActor
 final class RunDetector: ObservableObject {
     @Published var found: [DetectedRun] = []
+    @Published private(set) var lastScan: Date?
+    @Published private(set) var report: [ScanItem] = []
+    @Published private(set) var motionStatus = ""
 
     private let activity = CMMotionActivityManager()
     private let pedometer = CMPedometer()
@@ -186,6 +200,11 @@ final class RunDetector: ObservableObject {
     var enabled: Bool { UserDefaults.standard.object(forKey: "autoDetectRuns") as? Bool ?? true }
     var walksEnabled: Bool { UserDefaults.standard.object(forKey: "autoDetectWalks") as? Bool ?? true }
     var autoSave: Bool { UserDefaults.standard.object(forKey: "autoSaveDetected") as? Bool ?? true }
+    /// Shortest walk worth recording, in minutes.
+    var minWalkMinutes: Double {
+        let v = UserDefaults.standard.double(forKey: "minWalkMinutes")
+        return v > 0 ? v : 5
+    }
 
     /// Only activity after this moment is saved automatically, so turning the
     /// feature on doesn't flood Health with a week of old walks.
@@ -218,11 +237,16 @@ final class RunDetector: ObservableObject {
     }
 
     func scan(existing workouts: [WorkoutSummary]) async {
-        guard enabled || walksEnabled, CMMotionActivityManager.isActivityAvailable(),
-              CMMotionActivityManager.authorizationStatus() != .denied,
-              CMMotionActivityManager.authorizationStatus() != .restricted else {
+        lastScan = Date()
+        guard enabled || walksEnabled else { motionStatus = "Detection is off in Settings."; found = []; report = []; return }
+        guard CMMotionActivityManager.isActivityAvailable() else { motionStatus = "Motion data isn't available on this device."; found = []; return }
+        switch CMMotionActivityManager.authorizationStatus() {
+        case .denied, .restricted:
+            motionStatus = "Motion & Fitness access is off. Turn it on in Settings › Privacy & Security › Motion & Fitness."
             found = []
             return
+        default:
+            motionStatus = ""
         }
         let end = Date()
         let start = Calendar.current.date(byAdding: .day, value: -7, to: end)!
@@ -237,26 +261,47 @@ final class RunDetector: ObservableObject {
 
         let skip = dismissed
         var results: [DetectedRun] = []
+        var log: [ScanItem] = []
+        let logSince = Calendar.current.date(byAdding: .hour, value: -48, to: end)!
 
         func covered(_ seg: DateInterval, by others: [DateInterval]) -> Bool {
             others.contains { o in o.intersection(with: seg).map { $0.duration > seg.duration * 0.3 } ?? false }
         }
         let recorded = workouts.map { DateInterval(start: $0.start, end: max($0.end, $0.start)) }
+        let runSegs = runs.filter { $0.duration >= 3 * 60 }
+        let walkMin = minWalkMinutes * 60
 
-        for (kind, segs, minLength, minMeters) in [(DetectedRun.Kind.run, runs, 5.0 * 60, 400.0),
-                                                   (.walk, walks, 10.0 * 60, 700.0)] {
-            for seg in segs where seg.duration >= minLength {
+        for (kind, segs, minLength, minMeters) in [(DetectedRun.Kind.run, runs, 3.0 * 60, 300.0),
+                                                   (.walk, walks, walkMin, minWalkMinutes * 50)] {
+            for seg in segs {
+                let recent = seg.end >= logSince
+                func note(_ status: String, meters: Double? = nil, saved: Bool = false) {
+                    // Only list periods of at least a minute, so the log isn't flooded.
+                    if recent, seg.duration >= 60 {
+                        log.append(ScanItem(kind: kind, start: seg.start, end: seg.end, meters: meters, status: status, saved: saved))
+                    }
+                }
+                if seg.duration < minLength {
+                    note("Too short (\(Fmt.minutes(seg.duration / 60)) min; needs \(Int(minLength / 60)) min)")
+                    continue
+                }
                 // Still going right now? Wait until it's finished.
-                if end.timeIntervalSince(seg.end) < 3 * 60 { continue }
-                if skip.contains(seg.start.timeIntervalSince1970) { continue }
-                if covered(seg, by: recorded) { continue }
+                if end.timeIntervalSince(seg.end) < 2 * 60 { note("Still in progress — will save when you stop"); continue }
+                if skip.contains(seg.start.timeIntervalSince1970) { note("You removed this one"); continue }
+                if covered(seg, by: recorded) { note("Already recorded", saved: true); continue }
                 // A walk that's mostly a detected run is part of that run.
-                if kind == .walk, covered(seg, by: runs.filter { $0.duration >= 5 * 60 }) { continue }
+                if kind == .walk, covered(seg, by: runSegs) { note("Part of a run"); continue }
                 let (meters, steps) = await pedometerData(from: seg.start, to: seg.end)
-                guard meters >= minMeters else { continue }
+                guard meters >= minMeters else {
+                    note("Too little distance (\(Int(meters)) m)", meters: meters)
+                    continue
+                }
                 results.append(DetectedRun(kind: kind, start: seg.start, end: seg.end, meters: meters, steps: steps))
+                note(autoSave && seg.start >= autoSaveSince ? "Saving to Apple Health" : "Waiting for you to save it",
+                     meters: meters, saved: true)
             }
         }
+        report = log.sorted { $0.start > $1.start }
         found = results.sorted { $0.start > $1.start }
         if !autoSave { notifyFound() }
     }

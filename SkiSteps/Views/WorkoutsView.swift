@@ -46,6 +46,26 @@ struct WorkoutsView: View {
                     .buttonStyle(.plain)
                     if routes.enabled && !routes.hasAlways { routePermissionCard }
                     ForEach(detector.found) { run in detectedCard(run) }
+                    NavigationLink {
+                        DetectionLogView()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "sensor.tag.radiowaves.forward.fill")
+                                .foregroundStyle(detector.motionStatus.isEmpty ? Theme.accent : .yellow)
+                            Text(detector.motionStatus.isEmpty
+                                 ? "Walk & run detection · checked \(detector.lastScan?.formatted(date: .omitted, time: .shortened) ?? "—")"
+                                 : detector.motionStatus)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(2)
+                            Spacer()
+                            Text("Details").font(.caption.weight(.semibold))
+                            Image(systemName: "chevron.right").font(.caption2)
+                        }
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 4)
+                    }
+                    .buttonStyle(.plain)
                     weekCard
                     if kindsPresent.count > 2 { filterChips }
                     if shown.isEmpty {
@@ -596,5 +616,77 @@ struct WorkoutDetailView: View {
         }
         .padding(16)
         .card()
+    }
+}
+
+
+// MARK: - Detection log
+
+struct DetectionLogView: View {
+    @EnvironmentObject private var health: HealthStore
+    @EnvironmentObject private var detector: RunDetector
+    @AppStorage("useMetric") private var metric = false
+    @AppStorage("minWalkMinutes") private var minWalk: Double = 5
+    @State private var checking = false
+
+    var body: some View {
+        List {
+            Section {
+                HStack {
+                    Text("Last checked")
+                    Spacer()
+                    Text(detector.lastScan?.formatted(date: .omitted, time: .standard) ?? "Not yet").foregroundStyle(.secondary)
+                }
+                Button {
+                    checking = true
+                    Task { await health.refresh(); checking = false }
+                } label: {
+                    HStack {
+                        Label("Check now", systemImage: "arrow.clockwise")
+                        if checking { Spacer(); ProgressView() }
+                    }
+                }
+                Picker("Shortest walk to record", selection: $minWalk) {
+                    Text("3 min").tag(3.0)
+                    Text("5 min").tag(5.0)
+                    Text("10 min").tag(10.0)
+                    Text("15 min").tag(15.0)
+                }
+                .onChange(of: minWalk) { _, _ in Task { await health.refresh() } }
+                if !detector.motionStatus.isEmpty {
+                    Text(detector.motionStatus).font(.footnote).foregroundStyle(.yellow)
+                }
+            } footer: {
+                Text("Your iPhone's motion data is checked when you open the app, pull to refresh, and in the background (iOS decides how often — usually within an hour). A walk is saved about 2 minutes after you stop moving.")
+            }
+
+            Section("Last 48 hours") {
+                if detector.report.isEmpty {
+                    Text("No walking or running periods of a minute or more found.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
+                ForEach(detector.report) { item in
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: item.kind == .run ? "figure.run" : "figure.walk")
+                            .foregroundStyle(item.saved ? Theme.accent : .secondary)
+                            .frame(width: 24)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(item.start.formatted(.dateTime.weekday(.abbreviated).hour().minute())) – \(item.end.formatted(date: .omitted, time: .shortened))")
+                                .font(.subheadline.weight(.semibold))
+                            Text("\(Fmt.minutes(item.end.timeIntervalSince(item.start) / 60)) min"
+                                 + (item.meters.map { " · \(Fmt.distance($0, metric: metric)) \(Fmt.distanceUnit(metric))" } ?? ""))
+                                .font(.caption).foregroundStyle(.secondary)
+                            Text(item.status)
+                                .font(.caption)
+                                .foregroundStyle(item.saved ? Theme.accent : .orange)
+                        }
+                    }
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Theme.background.ignoresSafeArea())
+        .navigationTitle("Walk & Run Detection")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
