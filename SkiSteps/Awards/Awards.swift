@@ -223,7 +223,8 @@ enum AwardsEngine {
 
         // Sleep
         let nights = health.nights
-        let sleepGoal = { let g = UserDefaults.standard.double(forKey: "sleepGoal"); return g > 0 ? g : 8 }() * 3600
+        let savedSleepGoal = UserDefaults.standard.double(forKey: "sleepGoal")
+        let sleepGoal: Double = (savedSleepGoal > 0 ? savedSleepGoal : 8) * 3600
         let goodNight = nights.first { $0.asleep >= 8 * 3600 }
         let bestNight = nights.map(\.asleep).max() ?? 0
         out.append(Award(id: "sleep-8", title: "Well Rested", detail: "Sleep 8 hours in one night.", icon: "bed.double.fill",
