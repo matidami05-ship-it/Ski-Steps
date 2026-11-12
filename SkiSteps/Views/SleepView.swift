@@ -247,6 +247,7 @@ struct AICoachCard: View {
     let title: String
     let icon: String
     let color: Color
+    var instructions: String = AICoach.instructions
     let prompt: () -> String
     @ObservedObject private var coach = AICoach.shared
     @State private var showSettings = false
@@ -294,7 +295,7 @@ struct AICoachCard: View {
                 .buttonStyle(.plain)
             } else {
                 Button {
-                    Task { await coach.analyze(kind, prompt: prompt()) }
+                    Task { await coach.analyze(kind, prompt: prompt(), instructions: instructions) }
                 } label: {
                     Label(coach.results[kind] == nil ? "Analyze" : "Refresh analysis", systemImage: "sparkles")
                         .font(.subheadline.weight(.semibold))

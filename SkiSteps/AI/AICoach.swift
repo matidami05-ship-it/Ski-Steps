@@ -99,7 +99,7 @@ final class AICoach: ObservableObject {
 
     // MARK: Analysis
 
-    func analyze(_ kind: String, prompt: String) async {
+    func analyze(_ kind: String, prompt: String, instructions: String = AICoach.instructions) async {
         guard !loading.contains(kind) else { return }
         guard let provider = active else {
             errors[kind] = "Set up AI first: Settings › AI Coach."
@@ -112,9 +112,9 @@ final class AICoach: ObservableObject {
             let text: String
             switch provider {
             case .apple:
-                text = try await askApple(prompt)
+                text = try await askApple(prompt, instructions: instructions)
             default:
-                text = try await askClaude(prompt)
+                text = try await askClaude(prompt, instructions: instructions)
             }
             results[kind] = Result(text: text.trimmingCharacters(in: .whitespacesAndNewlines),
                                    date: Date(), provider: provider == .apple ? "Apple Intelligence" : "Claude")
@@ -126,7 +126,7 @@ final class AICoach: ObservableObject {
         }
     }
 
-    static let instructions = """
+    nonisolated static let instructions = """
     You are a friendly, encouraging fitness and sleep coach inside the Ski Steps app. \
     You get a summary of the user's recent data from Apple Health. Reply in plain markdown:
     - Start with one bold headline sentence.
@@ -139,10 +139,10 @@ final class AICoach: ObservableObject {
     talking to a doctor.
     """
 
-    private func askApple(_ prompt: String) async throws -> String {
+    private func askApple(_ prompt: String, instructions: String) async throws -> String {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, *) {
-            let session = LanguageModelSession(instructions: Self.instructions)
+            let session = LanguageModelSession(instructions: instructions)
             let response = try await session.respond(to: prompt)
             return response.content
         }
@@ -150,7 +150,7 @@ final class AICoach: ObservableObject {
         throw CoachError.message("Apple Intelligence isn't available on this iPhone.")
     }
 
-    private func askClaude(_ prompt: String) async throws -> String {
+    private func askClaude(_ prompt: String, instructions: String) async throws -> String {
         guard let key = Keychain.get("claudeAPIKey"), !key.isEmpty else {
             throw CoachError.message("Add your Claude API key in Settings › AI Coach.")
         }
@@ -163,7 +163,7 @@ final class AICoach: ObservableObject {
         let body: [String: Any] = [
             "model": claudeModel,
             "max_tokens": 1000,
-            "system": Self.instructions,
+            "system": instructions,
             "messages": [["role": "user", "content": prompt]],
         ]
         req.httpBody = try JSONSerialization.data(withJSONObject: body)

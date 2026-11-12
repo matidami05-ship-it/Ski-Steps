@@ -406,6 +406,7 @@ struct WorkoutDetailView: View {
     @State private var confirmDelete = false
     @AppStorage("useMetric") private var metric = false
     @State private var route: [CLLocation] = []
+    @State private var heartRates: [HRSample] = []
     @State private var loaded = false
 
     private var splits: [(Int, TimeInterval)] {
@@ -430,6 +431,17 @@ struct WorkoutDetailView: View {
                 header
                 if route.count > 1 { routeMap }
                 statsGrid
+                AICoachCard(kind: "workout-\(summary.id.uuidString)", title: "AI Coach", icon: "sparkles",
+                            color: Theme.active, instructions: HealthStore.workoutInstructions,
+                            prompt: { health.workoutPrompt(summary, samples: heartRates) })
+                if heartRates.count >= 5 {
+                    HRZonesCard(samples: heartRates, maxHR: health.maxHR)
+                    HRProfileCard(samples: heartRates, maxHR: health.maxHR)
+                }
+                if summary.distance > 0 && summary.kind != .swimming {
+                    SpeedCard(summary: summary, route: route, metric: metric)
+                }
+                EffortRadarCard(summary: summary, all: health.workouts)
                 if !splits.isEmpty { splitsCard }
                 if let log = summary.workout.metadata?["SkiStepsGymLog"] as? String, !log.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
@@ -479,7 +491,10 @@ struct WorkoutDetailView: View {
         .task {
             guard !loaded else { return }
             loaded = true
-            route = await health.route(for: summary.workout)
+            async let r = health.route(for: summary.workout)
+            async let hr = health.heartRateSamples(for: summary.workout)
+            route = await r
+            heartRates = await hr
         }
     }
 
