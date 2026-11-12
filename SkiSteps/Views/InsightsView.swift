@@ -100,7 +100,7 @@ struct InsightsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     AICoachCard(kind: "overall", title: "AI Coach", icon: "sparkles", color: Theme.accent,
-                                prompt: { health.overallPrompt() })
+                                autoRefresh: true, prompt: { health.overallPrompt() })
                     sectionTitle("Fitness")
                     fitnessCard
                     ratioCard
