@@ -19,6 +19,7 @@ struct TodayView: View {
                 VStack(spacing: 16) {
                     ringCard
                     statsRow
+                    AwardsTodayCard()
                     if !health.hasAnyData { noDataCard }
                     CurveCard(title: "Active Energy", icon: "flame.fill", color: Theme.calorie,
                               curve: health.energyCurve, unit: "kcal")

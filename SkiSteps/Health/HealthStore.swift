@@ -86,6 +86,7 @@ final class HealthStore: ObservableObject {
     @Published var maxHR: Double = 190
     @Published var training: TrainingLoad = .empty
     @Published var nights: [SleepNight] = []
+    @Published var awards: [Award] = []
 
     private var routeImages: [UUID: UIImage] = [:]
     private var placeNames: [UUID: String] = [:]
@@ -261,6 +262,8 @@ final class HealthStore: ObservableObject {
             workouts = await loadWorkouts()
         }
         await backfillRoutes()
+        awards = AwardsEngine.evaluate(self)
+        _ = AwardsEngine.notifyNew(awards)
         lastUpdated = now
 
         saveSnapshot()
