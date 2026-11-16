@@ -1,6 +1,7 @@
 import Foundation
 import CoreLocation
 import CoreMotion
+import UIKit
 
 /// Records GPS routes in the background while you walk, run or cycle, so
 /// auto-detected workouts can be saved with a route map.
@@ -57,7 +58,11 @@ final class RouteRecorder: NSObject, ObservableObject {
         super.init()
         manager.delegate = self
         manager.activityType = .fitness
-        manager.pausesLocationUpdatesAutomatically = false
+        manager.desiredAccuracy = kCLLocationAccuracyBest
+        manager.distanceFilter = 8
+        // iOS turns GPS off by itself when you stop moving; a small geofence
+        // around that spot wakes the app to turn it back on when you leave.
+        manager.pausesLocationUpdatesAutomatically = true
         manager.showsBackgroundLocationIndicator = false
     }
 
@@ -69,14 +74,23 @@ final class RouteRecorder: NSObject, ObservableObject {
         authorization = manager.authorizationStatus
         guard enabled else { stop(); return }
         guard authorization == .authorizedAlways || authorization == .authorizedWhenInUse else { return }
+
+        // Standard GPS updates work in the background too and are restarted
+        // by every wake-up (visit, significant change, leaving a geofence).
+        manager.allowsBackgroundLocationUpdates = true
+        manager.startUpdatingLocation()
+
+        // The background session only works if it's created while the app is
+        // on screen, so (re)create it whenever the app is active.
+        if UIApplication.shared.applicationState == .active {
+            session?.invalidate()
+            session = CLBackgroundActivitySession()
+            startLiveUpdates()
+        }
+
         guard !started else { return }
         started = true
         pruneOldPoints()
-
-        // Keeps the app able to receive location in the background, and lets
-        // iOS relaunch it if it was terminated while the session was active.
-        session = CLBackgroundActivitySession()
-        startLiveUpdates()
 
         if authorization == .authorizedAlways {
             manager.startMonitoringSignificantLocationChanges()
@@ -90,6 +104,19 @@ final class RouteRecorder: NSObject, ObservableObject {
             }
         }
     }
+
+    /// GPS paused because you stopped: watch a small circle around this spot
+    /// so leaving it wakes the app and turns GPS back on.
+    private func armGeofence(at location: CLLocation?) {
+        guard authorization == .authorizedAlways, let location else { return }
+        for r in manager.monitoredRegions where r.identifier == Self.fenceID { manager.stopMonitoring(for: r) }
+        let fence = CLCircularRegion(center: location.coordinate, radius: 60, identifier: Self.fenceID)
+        fence.notifyOnExit = true
+        fence.notifyOnEntry = false
+        manager.startMonitoring(for: fence)
+    }
+
+    private static let fenceID = "skisteps.stationary"
 
     private func startLiveUpdates() {
         updatesTask?.cancel()
@@ -126,6 +153,7 @@ final class RouteRecorder: NSObject, ObservableObject {
         manager.stopUpdatingLocation()
         manager.stopMonitoringSignificantLocationChanges()
         manager.stopMonitoringVisits()
+        for r in manager.monitoredRegions where r.identifier == Self.fenceID { manager.stopMonitoring(for: r) }
         flush()
     }
 
@@ -150,6 +178,7 @@ final class RouteRecorder: NSObject, ObservableObject {
 
     private func store(_ locations: [CLLocation]) {
         for l in locations where l.horizontalAccuracy >= 0 && l.horizontalAccuracy <= 50 {
+            if let last = lastPoint, l.timestamp <= last { continue }
             // Skip driving speeds (> ~30 km/h); walks, runs and rides stay.
             if l.speed > 8.5 { continue }
             recording = true
@@ -215,12 +244,36 @@ final class RouteRecorder: NSObject, ObservableObject {
 
 extension RouteRecorder: CLLocationManagerDelegate {
     nonisolated func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        // Significant-change wake-ups: make sure live updates are running.
-        Task { @MainActor in self.start() }
+        Task { @MainActor in
+            self.store(locations)
+            if !self.started { self.start() }
+        }
+    }
+
+    nonisolated func locationManagerDidPauseLocationUpdates(_ manager: CLLocationManager) {
+        let here = manager.location
+        Task { @MainActor in
+            self.recording = false
+            self.flush()
+            self.armGeofence(at: here)
+        }
+    }
+
+    nonisolated func locationManagerDidResumeLocationUpdates(_ manager: CLLocationManager) {}
+
+    nonisolated func locationManager(_ manager: CLLocationManager, didExitRegion region: CLRegion) {
+        Task { @MainActor in
+            // You've left the spot where you stopped: GPS back on.
+            self.manager.startUpdatingLocation()
+            self.start()
+        }
     }
 
     nonisolated func locationManager(_ manager: CLLocationManager, didVisit visit: CLVisit) {
-        Task { @MainActor in self.start() }
+        Task { @MainActor in
+            self.manager.startUpdatingLocation()
+            self.start()
+        }
     }
 
     nonisolated func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
