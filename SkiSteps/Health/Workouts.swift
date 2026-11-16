@@ -231,9 +231,16 @@ final class RunDetector: ObservableObject {
         found.removeAll { $0 == run }
     }
 
+    /// Workouts the user deleted (kept apart from ones simply already handled).
+    private var removed: Set<Double> {
+        get { Set(UserDefaults.standard.array(forKey: "removedRuns") as? [Double] ?? []) }
+        set { UserDefaults.standard.set(Array(newValue.suffix(400)), forKey: "removedRuns") }
+    }
+
     /// Stops a deleted auto-saved workout from being detected again.
     func forget(start: Date) {
         dismissed.insert(start.timeIntervalSince1970)
+        removed.insert(start.timeIntervalSince1970)
     }
 
     func scan(existing workouts: [WorkoutSummary]) async {
@@ -282,13 +289,14 @@ final class RunDetector: ObservableObject {
                     }
                 }
                 if seg.duration < minLength {
-                    note("Too short (\(Fmt.minutes(seg.duration / 60)) min; needs \(Int(minLength / 60)) min)")
+                    note("Too short (\(Fmt.clock(seg.duration)); needs \(Int(minLength / 60)):00)")
                     continue
                 }
                 // Still going right now? Wait until it's finished.
                 if end.timeIntervalSince(seg.end) < 2 * 60 { note("Still in progress — will save when you stop"); continue }
-                if skip.contains(seg.start.timeIntervalSince1970) { note("You removed this one"); continue }
-                if covered(seg, by: recorded) { note("Already recorded", saved: true); continue }
+                if covered(seg, by: recorded) { note("Saved to Apple Health", saved: true); continue }
+                if removed.contains(seg.start.timeIntervalSince1970) { note("You deleted this one"); continue }
+                if skip.contains(seg.start.timeIntervalSince1970) { note("Marked as not a workout"); continue }
                 // A walk that's mostly a detected run is part of that run.
                 if kind == .walk, covered(seg, by: runSegs) { note("Part of a run"); continue }
                 let (meters, steps) = await pedometerData(from: seg.start, to: seg.end)
