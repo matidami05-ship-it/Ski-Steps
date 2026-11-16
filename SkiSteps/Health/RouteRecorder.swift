@@ -17,6 +17,20 @@ final class RouteRecorder: NSObject, ObservableObject {
     @Published private(set) var authorization: CLAuthorizationStatus
     @Published private(set) var recording = false
     @Published private(set) var lastPoint: Date?
+    @Published private(set) var lastRouteError: String?
+    @Published private(set) var lastRouteSaved: Date?
+
+    func noteRoute(error: String?) {
+        if let error {
+            lastRouteError = error
+            UserDefaults.standard.set(error, forKey: "lastRouteError")
+        } else {
+            lastRouteError = nil
+            lastRouteSaved = Date()
+            UserDefaults.standard.removeObject(forKey: "lastRouteError")
+            UserDefaults.standard.set(Date(), forKey: "lastRouteSaved")
+        }
+    }
 
     private let manager = CLLocationManager()
     private let motion = CMMotionActivityManager()
@@ -38,6 +52,8 @@ final class RouteRecorder: NSObject, ObservableObject {
 
     override init() {
         authorization = manager.authorizationStatus
+        lastRouteError = UserDefaults.standard.string(forKey: "lastRouteError")
+        lastRouteSaved = UserDefaults.standard.object(forKey: "lastRouteSaved") as? Date
         super.init()
         manager.delegate = self
         manager.activityType = .fitness

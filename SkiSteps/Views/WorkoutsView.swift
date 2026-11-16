@@ -1,3 +1,4 @@
+import HealthKit
 import SwiftUI
 import MapKit
 import CoreLocation
@@ -623,6 +624,18 @@ struct WorkoutDetailView: View {
 // MARK: - Detection log
 
 private extension DetectionLogView {
+    var routeWriteOK: Bool {
+        health.store.authorizationStatus(for: HKSeriesType.workoutRoute()) == .sharingAuthorized
+    }
+
+    var routeWriteText: String {
+        switch health.store.authorizationStatus(for: HKSeriesType.workoutRoute()) {
+        case .sharingAuthorized: return "Allowed"
+        case .sharingDenied: return "Off — Health › Apps › Ski Steps › Workout Routes"
+        default: return "Not asked yet"
+        }
+    }
+
     var permissionText: String {
         switch routes.authorization {
         case .authorizedAlways: return "Always"
@@ -689,6 +702,22 @@ struct DetectionLogView: View {
                     Spacer()
                     Text(gps.newest?.formatted(.dateTime.weekday(.abbreviated).hour().minute()) ?? "None yet")
                         .foregroundStyle(.secondary)
+                }
+                HStack {
+                    Text("Saving routes to Health")
+                    Spacer()
+                    Text(routeWriteText).foregroundStyle(routeWriteOK ? Theme.accent : .orange)
+                }
+                if let saved = routes.lastRouteSaved {
+                    HStack {
+                        Text("Last map saved")
+                        Spacer()
+                        Text(saved.formatted(.dateTime.weekday(.abbreviated).hour().minute())).foregroundStyle(.secondary)
+                    }
+                }
+                if let err = routes.lastRouteError {
+                    Label(err, systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote).foregroundStyle(.orange)
                 }
             } header: {
                 Text("Route maps")

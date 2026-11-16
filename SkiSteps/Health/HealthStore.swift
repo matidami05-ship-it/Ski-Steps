@@ -341,7 +341,10 @@ final class HealthStore: ObservableObject {
         if let img = routeImages[w.id] { return img }
         if noRoute.contains(w.id) { return nil }
         let points = await route(for: w.workout)
-        guard points.count > 1 else { noRoute.insert(w.id); return nil }
+        guard points.count > 1 else {
+            if Date().timeIntervalSince(w.end) > 8 * 86400 { noRoute.insert(w.id) }
+            return nil
+        }
         let img = await RouteSnapshot.make(points.map(\.coordinate), size: size)
         routeImages[w.id] = img
         if placeNames[w.id] == nil, let first = points.first {
@@ -472,11 +475,39 @@ final class HealthStore: ObservableObject {
         guard let workout = try await builder.finishWorkout() else { return }
 
         if locations.count > 1 {
-            let routeBuilder = HKWorkoutRouteBuilder(healthStore: store, device: .local())
-            try await routeBuilder.insertRouteData(locations)
-            _ = try await routeBuilder.finishRoute(with: workout, metadata: nil)
+            // A route problem must never lose the workout itself.
+            _ = await attachRoute(locations, to: workout)
         }
         if refreshAfter { await refresh() }
+    }
+
+    /// Saves GPS points as the workout's route. Points are trimmed to the
+    /// workout's own start/end (Health rejects routes that run past them).
+    /// Returns true on success; failures are shown in Workouts › Details.
+    @discardableResult
+    func attachRoute(_ locations: [CLLocation], to workout: HKWorkout) async -> Bool {
+        var pts = locations
+            .filter { $0.timestamp >= workout.startDate && $0.timestamp <= workout.endDate }
+            .sorted { $0.timestamp < $1.timestamp }
+        // Drop repeated timestamps.
+        var last: Date?
+        pts = pts.filter { p in defer { last = p.timestamp }; return p.timestamp != last }
+        guard pts.count >= 2 else {
+            RouteRecorder.shared.noteRoute(error: "Only \(pts.count) GPS point(s) during the \(workout.startDate.formatted(date: .omitted, time: .shortened)) workout")
+            return false
+        }
+        let builder = HKWorkoutRouteBuilder(healthStore: store, device: .local())
+        do {
+            try await builder.insertRouteData(pts)
+            _ = try await builder.finishRoute(with: workout, metadata: nil)
+            noRoute.remove(workout.uuid)
+            routeImages[workout.uuid] = nil
+            RouteRecorder.shared.noteRoute(error: nil)
+            return true
+        } catch {
+            RouteRecorder.shared.noteRoute(error: "Health didn't accept the route: \(error.localizedDescription)")
+            return false
+        }
     }
 
     /// Saves runs and walks the phone detected, when auto-save is on.
@@ -509,17 +540,10 @@ final class HealthStore: ObservableObject {
                 done.insert(w.id.uuidString)
                 continue
             }
-            let pts = RouteRecorder.shared.points(from: w.start.addingTimeInterval(-30), to: w.end.addingTimeInterval(30))
+            let pts = RouteRecorder.shared.points(from: w.start, to: w.end)
             if pts.count >= 10 {
-                let builder = HKWorkoutRouteBuilder(healthStore: store, device: .local())
-                do {
-                    try await builder.insertRouteData(pts)
-                    _ = try await builder.finishRoute(with: w.workout, metadata: nil)
-                    noRoute.remove(w.id)
-                    routeImages[w.id] = nil
+                if await attachRoute(pts, to: w.workout) {
                     done.insert(w.id.uuidString)
-                } catch {
-                    lastError = "Couldn't add a route map: \(error.localizedDescription)"
                 }
             } else if Date().timeIntervalSince(w.end) > 3600 {
                 // No GPS for it and it's over an hour old — stop checking.
@@ -531,7 +555,7 @@ final class HealthStore: ObservableObject {
 
     /// GPS points the background recorder captured during a detected run/walk.
     func routePoints(for run: DetectedRun) -> [CLLocation] {
-        RouteRecorder.shared.points(from: run.start.addingTimeInterval(-30), to: run.end.addingTimeInterval(30))
+        RouteRecorder.shared.points(from: run.start, to: run.end)
     }
 
     /// Deletes a workout Ski Steps saved (e.g. a detected walk that wasn't one).
