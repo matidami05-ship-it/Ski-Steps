@@ -31,7 +31,7 @@ struct SleepView: View {
                         habitsCard
                     }
                     AICoachCard(kind: "sleep", title: "AI Sleep Analysis", icon: "moon.stars.fill",
-                                color: SleepStage.deep.color, prompt: { health.sleepPrompt() })
+                                color: SleepStage.deep.color, autoRefresh: true, prompt: { health.sleepPrompt() })
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 24)
