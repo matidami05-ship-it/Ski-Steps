@@ -1,6 +1,7 @@
 import Foundation
 import HealthKit
 import WatchConnectivity
+import WidgetKit
 
 /// Today's totals on the watch, plus goals synced from the iPhone.
 @MainActor
@@ -77,6 +78,8 @@ final class WatchHealth: NSObject, ObservableObject {
         distance = await d
         energy = await e
         activeMinutes = await a
+        WatchShare(stepGoal: Metric.steps.goal(), useMetric: UserDefaults.standard.bool(forKey: "useMetric")).save()
+        WidgetCenter.shared.reloadAllTimelines()
     }
 
     private func sum(_ id: HKQuantityTypeIdentifier, _ unit: HKUnit, _ start: Date, _ end: Date) async -> Double {
@@ -98,6 +101,8 @@ final class WatchHealth: NSObject, ObservableObject {
         }
         if let metric = context["useMetric"] as? Bool { defaults.set(metric, forKey: "useMetric") }
         goalsVersion += 1
+        WatchShare(stepGoal: Metric.steps.goal(), useMetric: UserDefaults.standard.bool(forKey: "useMetric")).save()
+        WidgetCenter.shared.reloadAllTimelines()
     }
 }
 

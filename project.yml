@@ -85,11 +85,15 @@ targets:
     sources:
       - path: SkiStepsWatch
       - path: Shared
+    dependencies:
+      - target: SkiStepsWatchWidget
     entitlements:
       path: SkiStepsWatch/SkiStepsWatch.entitlements
       properties:
         com.apple.developer.healthkit: true
         com.apple.developer.healthkit.access: []
+        keychain-access-groups:
+          - "$(AppIdentifierPrefix)com.skistudio.steps.shared"
     info:
       path: SkiStepsWatch/Info.plist
       properties:
@@ -102,9 +106,37 @@ targets:
         NSHealthUpdateUsageDescription: Ski Steps saves the workouts you record on Apple Watch to Apple Health.
         NSLocationWhenInUseUsageDescription: Ski Steps uses your location during outdoor workouts to map your route and measure distance.
         WKBackgroundModes: [workout-processing]
+        AppIdentifierPrefix: "$(AppIdentifierPrefix)"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.skistudio.steps.watchkitapp
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "4"
+        SKIP_INSTALL: YES
+  SkiStepsWatchWidget:
+    type: app-extension
+    platform: watchOS
+    sources:
+      - path: SkiStepsWatchWidget
+      - path: Shared
+    entitlements:
+      path: SkiStepsWatchWidget/SkiStepsWatchWidget.entitlements
+      properties:
+        com.apple.developer.healthkit: true
+        com.apple.developer.healthkit.access: []
+        keychain-access-groups:
+          - "$(AppIdentifierPrefix)com.skistudio.steps.shared"
+    info:
+      path: SkiStepsWatchWidget/Info.plist
+      properties:
+        CFBundleDisplayName: Ski Steps
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        AppIdentifierPrefix: "$(AppIdentifierPrefix)"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.skistudio.steps.watchkitapp.widget
         TARGETED_DEVICE_FAMILY: "4"
         SKIP_INSTALL: YES

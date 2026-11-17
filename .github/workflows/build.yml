@@ -41,6 +41,9 @@ jobs:
           echo "Bundle contents:"; ls "$APP" "$APP/PlugIns" "$APP/Watch" 2>&1 | head -40
           WATCH="$APP/Watch/SkiStepsWatch.app"
           if [ -d "$WATCH" ]; then
+            if [ -d "$WATCH/PlugIns/SkiStepsWatchWidget.appex" ]; then
+              codesign -f -s - --entitlements SkiStepsWatchWidget/SkiStepsWatchWidget.entitlements "$WATCH/PlugIns/SkiStepsWatchWidget.appex"
+            fi
             codesign -f -s - --entitlements SkiStepsWatch/SkiStepsWatch.entitlements "$WATCH"
           else
             echo "::error::Watch app was not embedded"; exit 1
