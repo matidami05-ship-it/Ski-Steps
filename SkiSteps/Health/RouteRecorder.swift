@@ -41,6 +41,19 @@ final class RouteRecorder: NSObject, ObservableObject {
     private var updatesTask: Task<Void, Never>?
     private var buffer: [String] = []
     private var lastFlush = Date()
+    private var precise = true
+    private var stillSince: Date?
+    private var lastCoarse: CLLocation?
+
+    /// Full GPS while moving, coarse low-power mode while still. Updates keep
+    /// running either way so the app stays awake in the background.
+    private func setPrecise(_ on: Bool) {
+        guard on != precise else { return }
+        precise = on
+        manager.desiredAccuracy = on ? kCLLocationAccuracyBest : kCLLocationAccuracyThreeKilometers
+        manager.distanceFilter = on ? 8 : 200
+        if !on { recording = false; flush(); armGeofence(at: manager.location) }
+    }
 
     var enabled: Bool { UserDefaults.standard.object(forKey: "recordRoutes") as? Bool ?? true }
     var hasAlways: Bool { authorization == .authorizedAlways }
@@ -60,9 +73,11 @@ final class RouteRecorder: NSObject, ObservableObject {
         manager.activityType = .fitness
         manager.desiredAccuracy = kCLLocationAccuracyBest
         manager.distanceFilter = 8
-        // iOS turns GPS off by itself when you stop moving; a small geofence
-        // around that spot wakes the app to turn it back on when you leave.
-        manager.pausesLocationUpdatesAutomatically = true
+        // Location updates are never paused: if they stop, iOS suspends the app
+        // and can't restart precise GPS from the background. Instead, while
+        // you're still the app drops to a low-power, coarse mode (cell/Wi-Fi),
+        // and switches back to full GPS the moment you start moving.
+        manager.pausesLocationUpdatesAutomatically = false
         manager.showsBackgroundLocationIndicator = false
     }
 
@@ -171,12 +186,27 @@ final class RouteRecorder: NSObject, ObservableObject {
 
     private func handle(_ a: CMMotionActivity) {
         let moving = (a.walking || a.running || a.cycling) && a.confidence != .low
-        if moving { lastMoving = Date() }
+        if moving {
+            lastMoving = Date()
+            stillSince = nil
+            setPrecise(true)
+        } else if a.stationary || a.automotive {
+            if stillSince == nil { stillSince = Date() }
+            // Still for 3 minutes: drop to low-power mode.
+            if let s = stillSince, Date().timeIntervalSince(s) > 180 { setPrecise(false) }
+        }
     }
 
     // MARK: Storage
 
     private func store(_ locations: [CLLocation]) {
+        // In low-power mode, a big jump or walking speed means you're moving
+        // again (backup in case the motion chip is slow to notice).
+        if !precise, let l = locations.last {
+            if let prev = lastCoarse, l.distance(from: prev) > 150 { setPrecise(true) }
+            if l.speed > 0.8, l.speed < 8.5 { setPrecise(true) }
+            lastCoarse = l
+        }
         for l in locations where l.horizontalAccuracy >= 0 && l.horizontalAccuracy <= 50 {
             if let last = lastPoint, l.timestamp <= last { continue }
             // Skip driving speeds (> ~30 km/h); walks, runs and rides stay.
@@ -251,11 +281,9 @@ extension RouteRecorder: CLLocationManagerDelegate {
     }
 
     nonisolated func locationManagerDidPauseLocationUpdates(_ manager: CLLocationManager) {
-        let here = manager.location
+        // Shouldn't happen (auto-pause is off); if iOS pauses anyway, resume.
         Task { @MainActor in
-            self.recording = false
-            self.flush()
-            self.armGeofence(at: here)
+            self.manager.startUpdatingLocation()
         }
     }
 
@@ -263,7 +291,8 @@ extension RouteRecorder: CLLocationManagerDelegate {
 
     nonisolated func locationManager(_ manager: CLLocationManager, didExitRegion region: CLRegion) {
         Task { @MainActor in
-            // You've left the spot where you stopped: GPS back on.
+            // You've left the spot where you stopped: full GPS back on.
+            self.setPrecise(true)
             self.manager.startUpdatingLocation()
             self.start()
         }
